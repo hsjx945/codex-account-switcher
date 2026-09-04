@@ -1021,10 +1021,10 @@ struct CoreChecks {
             .filter { $0.hasPrefix("usage-cache.json.switcher-") }
         try require(cacheTemporaryFiles.isEmpty, "failed cache replacement removes temporary file")
 
-        try require(!appModel.activeIdentityConfirmed, "precondition identity mismatch")
+        try require(appModel.activeIdentityState == .mismatch, "precondition identity mismatch")
         await appModel.switchAccount(to: second.id)
         try require(appModel.activeAccountID == second.id, "reopen failure active account reload")
-        try require(appModel.activeIdentityConfirmed, "reopen failure identity state")
+        try require(appModel.activeIdentityState == .confirmed, "reopen failure identity state")
         try require(appModel.visibleError?.stage == .reopenDesktop, "reopen failure message stage")
 
         let failingCodex = root.appending(path: "failing-codex")

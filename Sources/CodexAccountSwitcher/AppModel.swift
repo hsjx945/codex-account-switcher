@@ -34,6 +34,13 @@ enum LaunchAtLoginState: Equatable {
     }
 }
 
+enum ActiveIdentityVerificationState: Equatable {
+    case checking
+    case confirmed
+    case unavailable
+    case mismatch
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var accounts: [AccountProfile] = []
@@ -46,7 +53,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isMutating = false
     @Published private(set) var isAddingAccount = false
     @Published var visibleError: OperationError?
-    @Published private(set) var activeIdentityConfirmed = true
+    @Published private(set) var activeIdentityState: ActiveIdentityVerificationState = .checking
     @Published private(set) var launchAtLoginState: LaunchAtLoginState = .disabled
 
     private let store: AccountStore
@@ -119,6 +126,10 @@ final class AppModel: ObservableObject {
     var activeRemainingPercent: Int? {
         guard let activeAccountID else { return nil }
         return usageStates[activeAccountID]?.displayedUsage?.remainingPercent
+    }
+
+    var activeIdentityConfirmed: Bool {
+        activeIdentityState == .confirmed
     }
 
     var displayedAccounts: [AccountProfile] {
@@ -398,12 +409,12 @@ final class AppModel: ObservableObject {
         do {
             try await switchService.switchAccount(to: id)
             apply(try await store.loadRegistry())
-            activeIdentityConfirmed = true
+            activeIdentityState = .confirmed
         } catch let error as OperationError {
             if error.stage == .reopenDesktop {
                 do {
                     apply(try await store.loadRegistry())
-                    activeIdentityConfirmed = true
+                    activeIdentityState = .confirmed
                 } catch {
                     showError(error)
                     return
@@ -740,18 +751,26 @@ final class AppModel: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    func retryActiveIdentityConfirmation() {
+        Task { await confirmActiveIdentity() }
+    }
+
     private func confirmActiveIdentity() async {
         guard let activeID = activeAccountID,
               let profile = accounts.first(where: { $0.id == activeID })
-        else { return }
+        else {
+            activeIdentityState = .confirmed
+            return
+        }
+        activeIdentityState = .checking
         do {
             let activeHome = await store.activeCodexHome()
             let identity = try await operationGate.run { [codex] in
                 try await codex.readIdentity(profileHome: activeHome)
             }
-            activeIdentityConfirmed = identity.matches(profile)
+            activeIdentityState = identity.matches(profile) ? .confirmed : .mismatch
         } catch {
-            activeIdentityConfirmed = false
+            activeIdentityState = .unavailable
         }
     }
 

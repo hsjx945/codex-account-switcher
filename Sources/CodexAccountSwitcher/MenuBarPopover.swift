@@ -48,14 +48,25 @@ struct MenuBarPopover: View {
 
     private var accountPage: some View {
         VStack(spacing: 0) {
-            if !model.activeIdentityConfirmed {
-                Text(model.text("active_unconfirmed"))
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.orange)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(.orange.opacity(0.08))
+            switch model.activeIdentityState {
+            case .checking, .confirmed:
+                EmptyView()
+            case .unavailable:
+                IdentityStatusBanner(
+                    title: model.text("identity_temporarily_unavailable"),
+                    systemImage: "wifi.exclamationmark",
+                    color: .orange,
+                    retryTitle: model.text("retry"),
+                    onRetry: model.retryActiveIdentityConfirmation
+                )
+            case .mismatch:
+                IdentityStatusBanner(
+                    title: model.text("identity_mismatch"),
+                    systemImage: "person.crop.circle.badge.exclamationmark",
+                    color: .red,
+                    retryTitle: model.text("retry"),
+                    onRetry: model.retryActiveIdentityConfirmation
+                )
             }
 
             if model.accounts.isEmpty {
@@ -65,37 +76,16 @@ struct MenuBarPopover: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 150)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(model.displayedAccounts) { account in
-                            Button {
-                                if account.id == model.activeAccountID {
-                                    NSApp.keyWindow?.close()
-                                } else {
-                                    page = .confirmSwitch(account)
-                                }
-                            } label: {
-                                AccountRow(
-                                    account: account,
-                                    usageState: model.usageStates[account.id] ?? .idle,
-                                    isActive: account.id == model.activeAccountID,
-                                    language: model.settings.language,
-                                    showsFiveHourUsage: model.settings.showsFiveHourUsage,
-                                    tokenActivity: model.tokenActivities[account.id],
-                                    localModelUsage: account.id == model.activeAccountID
-                                        ? model.localModelUsage
-                                        : nil,
-                                    showsTokenActivity: model.settings.showsTokenActivity,
-                                    warmupStatus: model.warmupStatuses[account.id]
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(model.isMutating)
-                        }
+                if model.displayedAccounts.count <= 4 {
+                    accountRows
+                        .padding(9)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ScrollView {
+                        accountRows.padding(9)
                     }
-                    .padding(9)
+                    .frame(height: 520)
                 }
-                .frame(maxHeight: 610)
             }
 
             Divider()
@@ -125,6 +115,36 @@ struct MenuBarPopover: View {
         }
     }
 
+    private var accountRows: some View {
+        VStack(spacing: 8) {
+            ForEach(model.displayedAccounts) { account in
+                Button {
+                    if account.id == model.activeAccountID {
+                        NSApp.keyWindow?.close()
+                    } else {
+                        page = .confirmSwitch(account)
+                    }
+                } label: {
+                    AccountRow(
+                        account: account,
+                        usageState: model.usageStates[account.id] ?? .idle,
+                        isActive: account.id == model.activeAccountID,
+                        language: model.settings.language,
+                        showsFiveHourUsage: model.settings.showsFiveHourUsage,
+                        tokenActivity: model.tokenActivities[account.id],
+                        localModelUsage: account.id == model.activeAccountID
+                            ? model.localModelUsage
+                            : nil,
+                        showsTokenActivity: model.settings.showsTokenActivity,
+                        warmupStatus: model.warmupStatuses[account.id]
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(model.isMutating)
+            }
+        }
+    }
+
     private func switchAccount(_ account: AccountProfile) {
         page = .switching(account)
         Task {
@@ -140,6 +160,37 @@ private enum PopoverPage {
     case settings
     case confirmSwitch(AccountProfile)
     case switching(AccountProfile)
+}
+
+private struct IdentityStatusBanner: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+    let retryTitle: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(color)
+
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(color)
+                .lineLimit(2)
+
+            Spacer(minLength: 6)
+
+            Button(retryTitle, action: onRetry)
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(color.opacity(0.08))
+    }
 }
 
 private struct SwitchConfirmationPage: View {
