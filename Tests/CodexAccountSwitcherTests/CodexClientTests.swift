@@ -56,6 +56,104 @@ struct CodexClientTests {
         #expect(identity == AccountIdentity(accountID: "acct-123", email: "user@example.com"))
     }
 
+    @Test func readsOfficialDailyTokenBuckets() async throws {
+        let fixture = try ScriptFixture(body: """
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
+            *usage*read*) printf '%s\n' '{"id":1,"result":{"summary":{"lifetimeTokens":9000},"dailyUsageBuckets":[{"startDate":"2026-09-03","tokens":1200},{"startDate":"2026-09-04","tokens":2300}]}}' ;;
+          esac
+        done
+        """)
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+
+        let activity = try await client.readTokenActivity(profileHome: fixture.root)
+
+        #expect(activity.dailyBuckets == [
+            DailyTokenUsage(startDate: "2026-09-03", tokens: 1200),
+            DailyTokenUsage(startDate: "2026-09-04", tokens: 2300),
+        ])
+    }
+
+    @Test func doesNotTurnUnavailableDailyBucketsIntoZeroUsage() async throws {
+        let fixture = try ScriptFixture(body: """
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
+            *usage*read*) printf '%s\n' '{"id":1,"result":{"dailyUsageBuckets":null}}' ;;
+          esac
+        done
+        """)
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+
+        do {
+            _ = try await client.readTokenActivity(profileHome: fixture.root)
+            Issue.record("Null daily buckets should be unavailable")
+        } catch let error as CodexClientError {
+            #expect(error == .tokenActivityUnavailable)
+        }
+    }
+
+    @Test func warmupDiscoversAndUsesTheSmallAvailableModel() async throws {
+        let fixture = try ScriptFixture(body: """
+        if test "${1:-}" = "exec"; then
+          case " $* " in
+            *" --model gpt-5.6-luna "*) exit 0 ;;
+            *) exit 21 ;;
+          esac
+        fi
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
+            *model*list*) printf '%s\n' '{"id":1,"result":{"data":[{"model":"gpt-5.6-sol"},{"model":"gpt-5.6-luna"}]}}' ;;
+          esac
+        done
+        """)
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+
+        #expect(try await client.warmup(profileHome: fixture.root) == "gpt-5.6-luna")
+    }
+
+    @Test func warmupDoesNotFallBackToAnUnverifiedLargeModel() async throws {
+        let fixture = try ScriptFixture(body: """
+        if test "${1:-}" = "exec"; then exit 31; fi
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
+            *model*list*) printf '%s\n' '{"id":1,"result":{"data":[{"model":"gpt-5.6-sol"}]}}' ;;
+          esac
+        done
+        """)
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+
+        do {
+            _ = try await client.warmup(profileHome: fixture.root)
+            Issue.record("Warmup should skip when no verified small model is available")
+        } catch let error as CodexClientError {
+            #expect(error == .warmupFailed("No verified small model is available."))
+        }
+    }
+
     @Test func surfacesMalformedJSON() async {
         let fixture = try! ScriptFixture(body: """
         while IFS= read -r line; do

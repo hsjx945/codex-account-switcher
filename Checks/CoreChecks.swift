@@ -16,6 +16,13 @@ private func permissions(_ url: URL) throws -> Int {
     return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
 }
 
+private func requireDate(_ value: String) throws -> Date {
+    guard let date = ISO8601DateFormatter().date(from: value) else {
+        throw CheckFailure.failed("invalid fixture date: \(value)")
+    }
+    return date
+}
+
 private func lineCount(at url: URL) -> Int {
     guard let data = try? Data(contentsOf: url) else { return 0 }
     return String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).count
@@ -244,6 +251,43 @@ struct CoreChecks {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appending(path: "switcher-check-\(UUID().uuidString)")
         defer { try? fileManager.removeItem(at: root) }
+
+        let scanHome = root.appending(path: "model-scan", directoryHint: .isDirectory)
+        let scanSessions = scanHome.appending(path: "sessions", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: scanSessions, withIntermediateDirectories: true)
+        let scanFixture = scanSessions.appending(path: "usage.jsonl")
+        try Data("""
+        {"timestamp":"2026-09-04T09:00:00Z","type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
+        {"timestamp":"2026-09-04T09:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100}}}}
+        {"timestamp":"2026-09-04T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100}}}}
+        {"timestamp":"2026-09-04T09:03:00Z","type":"turn_context","payload":{"model":"gpt-5.6-luna"}}
+        {"timestamp":"2026-09-04T09:04:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":160}}}}
+        """.utf8).write(to: scanFixture)
+        let scanNow = try requireDate("2026-09-04T12:00:00Z")
+        var utcCalendar = Calendar(identifier: .gregorian)
+        utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let modelSummary = await LocalSessionUsageScanner(codexHome: scanHome).scan(
+            now: scanNow,
+            calendar: utcCalendar
+        )
+        try require(
+            modelSummary.models == [
+                LocalModelTokenUsage(
+                    model: "gpt-5.6-sol",
+                    todayTokens: 100,
+                    sevenDayTokens: 100,
+                    thirtyDayTokens: 100
+                ),
+                LocalModelTokenUsage(
+                    model: "gpt-5.6-luna",
+                    todayTokens: 60,
+                    sevenDayTokens: 60,
+                    thirtyDayTokens: 60
+                ),
+            ],
+            "local model usage uses cumulative deltas and accepts both ISO timestamp forms"
+        )
+
         let activeHome = root.appending(path: "active")
         let support = root.appending(path: "support")
         try fileManager.createDirectory(at: activeHome, withIntermediateDirectories: true)
@@ -320,6 +364,18 @@ struct CoreChecks {
             !legacySettings.showsFiveHourUsage,
             "legacy settings hide five-hour usage"
         )
+        try require(
+            legacySettings.accountNameStyle == .email,
+            "legacy settings default to full email labels"
+        )
+        try require(
+            legacySettings.showsTokenActivity,
+            "legacy settings show token activity"
+        )
+        try require(
+            !legacySettings.automaticWarmupEnabled,
+            "legacy settings keep scheduled warmup disabled"
+        )
         let hiddenPercentageSettings = AppSettings(
             language: .simplifiedChinese,
             showsMenuBarPercentage: false,
@@ -334,6 +390,30 @@ struct CoreChecks {
         )
         let settingsPermissions = try permissions(settingsURL)
         try require(settingsPermissions == 0o600, "settings permissions")
+
+        let warmupHistoryURL = support.appending(path: "warmup-history.json")
+        try Data("""
+        {"lastAttemptDayByProfile":{"\(first.id.uuidString)":"2026-09-03"}}
+        """.utf8).write(to: warmupHistoryURL)
+        let legacyWarmupHistory = try await store.loadWarmupHistory()
+        try require(
+            legacyWarmupHistory.lastRecordByProfile.isEmpty,
+            "legacy warmup history defaults observable results"
+        )
+        try await store.recordWarmupAttempt(profileID: first.id, day: "2026-09-04")
+        let warmupHistory = try await store.loadWarmupHistory()
+        try require(
+            warmupHistory.lastAttemptDayByProfile[first.id.uuidString] == "2026-09-04",
+            "warmup attempt history persistence"
+        )
+        try require(
+            warmupHistory.lastRecordByProfile[first.id.uuidString]?.outcome == .attempting,
+            "warmup observable result persistence"
+        )
+        let warmupHistoryPermissions = try permissions(
+            warmupHistoryURL
+        )
+        try require(warmupHistoryPermissions == 0o600, "warmup history permissions")
 
         try fileManager.removeItem(at: activeCredential)
         try fileManager.createDirectory(at: activeCredential, withIntermediateDirectories: false)
@@ -489,6 +569,7 @@ struct CoreChecks {
               done
               printf '%s\\n' '{"id":1,"result":{"rateLimits":{"primary":{"usedPercent":80,"windowDurationMins":300,"resetsAt":100},"secondary":{"usedPercent":58,"windowDurationMins":10080,"resetsAt":1750000000}}}}'
               ;;
+            *usage*read*) printf '%s\\n' '{"id":1,"result":{"dailyUsageBuckets":[{"startDate":"2026-09-04","tokens":2300}]}}' ;;
             *account*read*)
               test "$state" -eq 2 || exit 13
               printf '%s\\n' '{"id":1,"result":{"account":{"type":"chatgpt","email":"user@example.com","accountId":"acct-123"},"requiresOpenaiAuth":true}}'
@@ -503,14 +584,119 @@ struct CoreChecks {
         let rpcWeekly = try await client.readWeeklyUsage(profileHome: root)
         try require(rpcWeekly.remainingPercent == 42, "JSONL rate-limit handshake")
         try require(rpcWeekly.fiveHourRemainingPercent == 20, "JSONL five-hour rate limit")
+        let rpcActivity = try await client.readTokenActivity(profileHome: root)
+        try require(
+            rpcActivity.dailyBuckets == [
+                DailyTokenUsage(startDate: "2026-09-04", tokens: 2300),
+            ],
+            "JSONL official daily token buckets"
+        )
+
+        let nullUsageCodex = root.appending(path: "null-usage-codex")
+        try createExecutable(at: nullUsageCodex, body: """
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\\n' '{"id":0,"result":{}}' ;;
+            *usage*read*) printf '%s\\n' '{"id":1,"result":{"dailyUsageBuckets":null}}' ;;
+          esac
+        done
+        """)
+        let nullUsageClient = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: nullUsageCodex),
+            requestTimeout: .seconds(3)
+        )
+        do {
+            _ = try await nullUsageClient.readTokenActivity(profileHome: root)
+            throw CheckFailure.failed("null daily buckets should be unavailable")
+        } catch let error as CodexClientError {
+            try require(error == .tokenActivityUnavailable, "null daily buckets stay unavailable")
+        }
         let identity = try await client.readIdentity(profileHome: root)
         try require(identity.accountID == "acct-123", "JSONL account handshake")
+
+        let warmupCodex = root.appending(path: "warmup-codex")
+        try createExecutable(at: warmupCodex, body: """
+        if test "${1:-}" = "exec"; then
+          case " $* " in
+            *" --model gpt-5.6-luna "*) exit 0 ;;
+            *) exit 21 ;;
+          esac
+        fi
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\\n' '{"id":0,"result":{}}' ;;
+            *model*list*) printf '%s\\n' '{"id":1,"result":{"data":[{"model":"gpt-5.6-sol"},{"model":"gpt-5.6-luna"}]}}' ;;
+          esac
+        done
+        """)
+        let warmupClient = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: warmupCodex),
+            requestTimeout: .seconds(3)
+        )
+        let warmupModel = try await warmupClient.warmup(profileHome: root)
+        try require(
+            warmupModel == "gpt-5.6-luna",
+            "warmup discovers and invokes the smaller available model"
+        )
+
+        let largeOnlyCodex = root.appending(path: "large-only-codex")
+        try createExecutable(at: largeOnlyCodex, body: """
+        if test "${1:-}" = "exec"; then exit 31; fi
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\\n' '{"id":0,"result":{}}' ;;
+            *model*list*) printf '%s\\n' '{"id":1,"result":{"data":[{"model":"gpt-5.6-sol"}]}}' ;;
+          esac
+        done
+        """)
+        let largeOnlyClient = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: largeOnlyCodex),
+            requestTimeout: .seconds(3)
+        )
+        do {
+            _ = try await largeOnlyClient.warmup(profileHome: root)
+            throw CheckFailure.failed("warmup should not use an unverified large model")
+        } catch let error as CodexClientError {
+            try require(
+                error == .warmupFailed("No verified small model is available."),
+                "warmup skips when no verified small model is available"
+            )
+        }
+
+        let stalledWarmupCodex = root.appending(path: "stalled-warmup-codex")
+        try createExecutable(at: stalledWarmupCodex, body: """
+        if test "${1:-}" = "exec"; then
+          sleep 5
+          exit 0
+        fi
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\\n' '{"id":0,"result":{}}' ;;
+            *model*list*) printf '%s\\n' '{"id":1,"result":{"data":[{"model":"gpt-5.6-luna"}]}}' ;;
+          esac
+        done
+        """)
+        let stalledWarmupClient = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: stalledWarmupCodex),
+            requestTimeout: .milliseconds(100)
+        )
+        do {
+            _ = try await stalledWarmupClient.warmup(profileHome: root)
+            throw CheckFailure.failed("stalled warmup should time out")
+        } catch let error as CodexClientError {
+            try require(error == .timeout, "stalled warmup timeout")
+        }
 
         let appModel = AppModel(
             store: store,
             codex: client,
             switchService: ReopenFailureSwitchService(store: store),
-            operationGate: AccountOperationGate()
+            operationGate: AccountOperationGate(),
+            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
         )
         await appModel.start()
         try require(
@@ -564,6 +750,7 @@ struct CoreChecks {
               sleep 1
               printf '%s\\n' '{"id":1,"result":{"rateLimits":{"primary":{"usedPercent":57,"windowDurationMins":10080,"resetsAt":1750000000}}}}'
               ;;
+            *usage*read*) printf '%s\\n' '{"id":1,"result":{"dailyUsageBuckets":[]}}' ;;
             *account*read*) printf '%s\\n' '{"id":1,"result":{"account":{"type":"chatgpt","email":"user@example.com","accountId":"acct-123"},"requiresOpenaiAuth":true}}' ;;
           esac
         done
@@ -576,7 +763,8 @@ struct CoreChecks {
             store: store,
             codex: countingClient,
             switchService: ReopenFailureSwitchService(store: store),
-            operationGate: AccountOperationGate()
+            operationGate: AccountOperationGate(),
+            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
         )
         await countingModel.start()
         try require(countingModel.accounts.count == 3, "counting model loaded all profiles")
@@ -615,6 +803,7 @@ struct CoreChecks {
               printf '%s\\n' 'request' >> '\(scheduledRequestCountURL.path)'
               printf '%s\\n' '{"id":1,"result":{"rateLimits":{"primary":{"usedPercent":56,"windowDurationMins":10080,"resetsAt":1750000000}}}}'
               ;;
+            *usage*read*) printf '%s\\n' '{"id":1,"result":{"dailyUsageBuckets":[]}}' ;;
             *account*read*) printf '%s\\n' '{"id":1,"result":{"account":{"type":"chatgpt","email":"user@example.com","accountId":"acct-123"},"requiresOpenaiAuth":true}}' ;;
           esac
         done
@@ -627,7 +816,8 @@ struct CoreChecks {
             store: store,
             codex: scheduledClient,
             switchService: ReopenFailureSwitchService(store: store),
-            operationGate: AccountOperationGate()
+            operationGate: AccountOperationGate(),
+            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
         )
         await scheduledModel.startBackgroundUsageRefresh(every: .seconds(3))
         try await waitForLineCount(at: scheduledRequestCountURL, atLeast: 2)
@@ -717,7 +907,8 @@ struct CoreChecks {
             store: store,
             codex: failingClient,
             switchService: ReopenFailureSwitchService(store: store),
-            operationGate: AccountOperationGate()
+            operationGate: AccountOperationGate(),
+            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
         )
         await failureModel.start()
         failureModel.refreshWeeklyUsage()

@@ -6,6 +6,10 @@ struct AccountRow: View {
     let isActive: Bool
     let language: AppLanguage
     let showsFiveHourUsage: Bool
+    let nameStyle: AccountNameStyle
+    let tokenActivity: TokenActivity?
+    let showsTokenActivity: Bool
+    let warmupStatus: WarmupRecord?
     @State private var isHovering = false
 
     var body: some View {
@@ -17,11 +21,25 @@ struct AccountRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text(account.displayName)
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(account.primaryLabel(style: nameStyle))
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let secondary = account.secondaryLabel(style: nameStyle) {
+                            Text(secondary)
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
                     Spacer(minLength: 4)
+                    if isActive {
+                        Text(L10n.string("active", language: language))
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                     if let usage = usageState.displayedUsage, !showsFiveHourUsage {
                         Text(resetText(for: usage))
                             .font(.system(size: 10.5))
@@ -38,6 +56,14 @@ struct AccountRow: View {
                 }
 
                 usageContent
+
+                if showsTokenActivity, let tokenActivity {
+                    tokenContent(tokenActivity)
+                }
+
+                if let warmupStatus {
+                    warmupContent(warmupStatus)
+                }
             }
         }
         .frame(minHeight: 50)
@@ -51,6 +77,51 @@ struct AccountRow: View {
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
+    private func tokenContent(_ activity: TokenActivity) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                tokenMetric("today", activity.tokens(inLastDays: 1))
+                tokenMetric("last_7_days", activity.tokens(inLastDays: 7))
+                tokenMetric("last_30_days", activity.tokens(inLastDays: 30))
+            }
+        }
+    }
+
+    private func tokenMetric(_ key: String, _ tokens: Int) -> some View {
+        Text("\(L10n.string(key, language: language)) \(formatTokens(tokens))")
+            .font(.system(size: 9.5).monospacedDigit())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    private func warmupContent(_ record: WarmupRecord) -> some View {
+        let key = switch record.outcome {
+        case .attempting: "warmup_attempting"
+        case .confirmed: "warmup_confirmed"
+        case .unconfirmed: "warmup_unconfirmed"
+        case .failed: "warmup_failed"
+        }
+        let timestamp = record.attemptedAt.formatted(
+            .dateTime.month(.abbreviated).day().hour().minute()
+        )
+        let model = record.model.map { " · \($0)" } ?? ""
+        return Text("\(L10n.string(key, language: language)) · \(timestamp)\(model)")
+            .font(.system(size: 9.5))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+    }
+
+    private func formatTokens(_ tokens: Int) -> String {
+        if tokens >= 1_000_000 {
+            return String(format: "%.1fM", Double(tokens) / 1_000_000)
+        }
+        if tokens >= 1_000 {
+            return String(format: "%.1fK", Double(tokens) / 1_000)
+        }
+        return String(tokens)
     }
 
     @ViewBuilder
@@ -151,7 +222,7 @@ struct AccountRow: View {
 
     private var rowBackground: Color {
         if isActive {
-            return Color.accentColor.opacity(0.10)
+            return Color(red: 0.38, green: 0.43, blue: 0.49).opacity(0.13)
         }
         return Color.primary.opacity(isHovering ? 0.055 : 0)
     }

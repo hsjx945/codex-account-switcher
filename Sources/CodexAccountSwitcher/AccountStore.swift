@@ -59,6 +59,7 @@ actor AccountStore: AccountStoring {
     private var accountsURL: URL { baseURL.appending(path: "accounts.json") }
     private var settingsURL: URL { baseURL.appending(path: "settings.json") }
     private var usageCacheURL: URL { baseURL.appending(path: "usage-cache.json") }
+    private var warmupHistoryURL: URL { baseURL.appending(path: "warmup-history.json") }
     private var profilesURL: URL { baseURL.appending(path: "accounts", directoryHint: .isDirectory) }
 
     func loadRegistry() throws -> AccountRegistry {
@@ -84,6 +85,29 @@ actor AccountStore: AccountStoring {
         try writeJSON(settings, to: settingsURL)
     }
 
+    func loadWarmupHistory() throws -> WarmupHistory {
+        try prepareDirectories()
+        guard fileManager.fileExists(atPath: warmupHistoryURL.path) else { return .empty }
+        return try Self.decoder.decode(WarmupHistory.self, from: Data(contentsOf: warmupHistoryURL))
+    }
+
+    func recordWarmupAttempt(profileID: UUID, day: String, attemptedAt: Date = Date()) throws {
+        var history = try loadWarmupHistory()
+        history.lastAttemptDayByProfile[profileID.uuidString] = day
+        history.lastRecordByProfile[profileID.uuidString] = WarmupRecord(
+            attemptedAt: attemptedAt,
+            outcome: .attempting,
+            model: nil
+        )
+        try writeJSON(history, to: warmupHistoryURL)
+    }
+
+    func recordWarmupResult(profileID: UUID, record: WarmupRecord) throws {
+        var history = try loadWarmupHistory()
+        history.lastRecordByProfile[profileID.uuidString] = record
+        try writeJSON(history, to: warmupHistoryURL)
+    }
+
     func loadUsageCache() throws -> UsageCache {
         try prepareDirectories()
         if let usageCache { return usageCache }
@@ -100,11 +124,33 @@ actor AccountStore: AccountStoring {
         let registry = try loadRegistry()
         guard registry.accounts.contains(where: { $0.id == profileID }) else { return }
         var cache = try loadUsageCache()
-        let entry = UsageCacheEntry(profileID: profileID, usage: usage, fetchedAt: fetchedAt)
+        let existingActivity = cache.entries.first(where: { $0.profileID == profileID })?.tokenActivity
+        let entry = UsageCacheEntry(
+            profileID: profileID,
+            usage: usage,
+            fetchedAt: fetchedAt,
+            tokenActivity: existingActivity
+        )
         if let index = cache.entries.firstIndex(where: { $0.profileID == profileID }) {
             cache.entries[index] = entry
         } else {
             cache.entries.append(entry)
+        }
+        try saveUsageCache(cache)
+    }
+
+    func cacheTokenActivity(
+        _ activity: TokenActivity,
+        profileID: UUID,
+        fetchedAt: Date = Date()
+    ) throws {
+        let registry = try loadRegistry()
+        guard registry.accounts.contains(where: { $0.id == profileID }) else { return }
+        var cache = try loadUsageCache()
+        if let index = cache.entries.firstIndex(where: { $0.profileID == profileID }) {
+            cache.entries[index].tokenActivity = activity
+        } else {
+            return
         }
         try saveUsageCache(cache)
     }
@@ -168,6 +214,16 @@ actor AccountStore: AccountStoring {
         try saveRegistry(current)
     }
 
+    func updateNickname(id: UUID, nickname: String?) throws {
+        var current = try loadRegistry()
+        guard let index = current.accounts.firstIndex(where: { $0.id == id }) else {
+            throw AccountStoreError.profileNotFound
+        }
+        let normalized = nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
+        current.accounts[index].nickname = normalized?.isEmpty == false ? normalized : nil
+        try saveRegistry(current)
+    }
+
     func removeAccount(id: UUID) throws {
         var current = try loadRegistry()
         guard current.activeAccountID != id else {
@@ -180,6 +236,12 @@ actor AccountStore: AccountStoring {
         if cache.entries.contains(where: { $0.profileID == id }) {
             cache.entries.removeAll(where: { $0.profileID == id })
             try saveUsageCache(cache)
+        }
+        var warmupHistory = try loadWarmupHistory()
+        let removedDay = warmupHistory.lastAttemptDayByProfile.removeValue(forKey: id.uuidString)
+        let removedRecord = warmupHistory.lastRecordByProfile.removeValue(forKey: id.uuidString)
+        if removedDay != nil || removedRecord != nil {
+            try writeJSON(warmupHistory, to: warmupHistoryURL)
         }
         try fileManager.removeItem(at: profileHome(id: id))
         current.accounts.removeAll(where: { $0.id == id })

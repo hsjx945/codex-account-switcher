@@ -3,17 +3,46 @@ import Foundation
 struct AccountProfile: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: UUID
     var displayName: String
+    var nickname: String? = nil
     let email: String?
     let accountID: String?
     let createdAt: Date
     var lastUsedAt: Date?
 
     var initials: String {
-        let parts = displayName
+        let source = nickname?.nilIfBlank ?? email ?? displayName
+        let parts = source
             .split(whereSeparator: { $0.isWhitespace })
             .prefix(2)
         let value = parts.compactMap(\.first).map(String.init).joined()
         return value.isEmpty ? "?" : value.uppercased()
+    }
+
+    func primaryLabel(style: AccountNameStyle) -> String {
+        switch style {
+        case .email:
+            email ?? nickname?.nilIfBlank ?? displayName
+        case .nickname:
+            nickname?.nilIfBlank ?? email ?? displayName
+        case .nicknameAndEmail:
+            nickname?.nilIfBlank ?? email ?? displayName
+        }
+    }
+
+    func secondaryLabel(style: AccountNameStyle) -> String? {
+        guard style == .nicknameAndEmail,
+              nickname?.nilIfBlank != nil,
+              let email,
+              email.caseInsensitiveCompare(primaryLabel(style: style)) != .orderedSame
+        else { return nil }
+        return email
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }
 
@@ -32,25 +61,53 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum AccountNameStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case email
+    case nickname
+    case nicknameAndEmail
+
+    var id: String { rawValue }
+}
+
 struct AppSettings: Codable, Equatable, Sendable {
     var language: AppLanguage
     var showsMenuBarPercentage: Bool
     var showsFiveHourUsage: Bool
+    var accountNameStyle: AccountNameStyle
+    var showsTokenActivity: Bool
+    var automaticWarmupEnabled: Bool
+    var warmupHour: Int
+    var warmupMinute: Int
 
     static let `default` = AppSettings(
         language: .system,
         showsMenuBarPercentage: true,
-        showsFiveHourUsage: false
+        showsFiveHourUsage: false,
+        accountNameStyle: .email,
+        showsTokenActivity: true,
+        automaticWarmupEnabled: false,
+        warmupHour: 8,
+        warmupMinute: 30
     )
 
     init(
         language: AppLanguage,
         showsMenuBarPercentage: Bool = true,
-        showsFiveHourUsage: Bool = false
+        showsFiveHourUsage: Bool = false,
+        accountNameStyle: AccountNameStyle = .email,
+        showsTokenActivity: Bool = true,
+        automaticWarmupEnabled: Bool = false,
+        warmupHour: Int = 8,
+        warmupMinute: Int = 30
     ) {
         self.language = language
         self.showsMenuBarPercentage = showsMenuBarPercentage
         self.showsFiveHourUsage = showsFiveHourUsage
+        self.accountNameStyle = accountNameStyle
+        self.showsTokenActivity = showsTokenActivity
+        self.automaticWarmupEnabled = automaticWarmupEnabled
+        self.warmupHour = min(max(warmupHour, 0), 23)
+        self.warmupMinute = min(max(warmupMinute, 0), 59)
     }
 
     init(from decoder: any Decoder) throws {
@@ -64,6 +121,56 @@ struct AppSettings: Codable, Equatable, Sendable {
             Bool.self,
             forKey: .showsFiveHourUsage
         ) ?? false
+        accountNameStyle = try container.decodeIfPresent(
+            AccountNameStyle.self,
+            forKey: .accountNameStyle
+        ) ?? .email
+        showsTokenActivity = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .showsTokenActivity
+        ) ?? true
+        automaticWarmupEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .automaticWarmupEnabled
+        ) ?? false
+        warmupHour = min(max(try container.decodeIfPresent(Int.self, forKey: .warmupHour) ?? 8, 0), 23)
+        warmupMinute = min(max(try container.decodeIfPresent(Int.self, forKey: .warmupMinute) ?? 30, 0), 59)
+    }
+}
+
+struct DailyTokenUsage: Codable, Equatable, Sendable {
+    let startDate: String
+    let tokens: Int
+}
+
+struct ModelTokenUsage: Codable, Equatable, Sendable, Identifiable {
+    let model: String
+    let tokens: Int
+
+    var id: String { model }
+}
+
+struct TokenActivity: Codable, Equatable, Sendable {
+    let dailyBuckets: [DailyTokenUsage]
+    let modelBreakdown: [ModelTokenUsage]
+    let localModelCoverageStartedAt: Date?
+
+    func tokens(inLastDays days: Int, now: Date = Date(), calendar: Calendar = .current) -> Int {
+        let today = calendar.startOfDay(for: now)
+        guard days > 0,
+              let start = calendar.date(byAdding: .day, value: -(days - 1), to: today)
+        else { return 0 }
+        return dailyBuckets.reduce(into: 0) { total, bucket in
+            let parts = bucket.startDate.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3,
+                  let date = calendar.date(
+                    from: DateComponents(year: parts[0], month: parts[1], day: parts[2])
+                  ),
+                  date >= start,
+                  date <= today
+            else { return }
+            total += bucket.tokens
+        }
     }
 }
 
@@ -90,12 +197,65 @@ struct UsageCacheEntry: Codable, Equatable, Sendable {
     let profileID: UUID
     let usage: WeeklyUsage
     let fetchedAt: Date
+    var tokenActivity: TokenActivity?
+
+    init(
+        profileID: UUID,
+        usage: WeeklyUsage,
+        fetchedAt: Date,
+        tokenActivity: TokenActivity? = nil
+    ) {
+        self.profileID = profileID
+        self.usage = usage
+        self.fetchedAt = fetchedAt
+        self.tokenActivity = tokenActivity
+    }
 }
 
 struct UsageCache: Codable, Equatable, Sendable {
     var entries: [UsageCacheEntry]
 
     static let empty = UsageCache(entries: [])
+}
+
+enum WarmupOutcome: String, Codable, Equatable, Sendable {
+    case attempting
+    case confirmed
+    case unconfirmed
+    case failed
+}
+
+struct WarmupRecord: Codable, Equatable, Sendable {
+    let attemptedAt: Date
+    let outcome: WarmupOutcome
+    let model: String?
+}
+
+struct WarmupHistory: Codable, Equatable, Sendable {
+    var lastAttemptDayByProfile: [String: String]
+    var lastRecordByProfile: [String: WarmupRecord]
+
+    static let empty = WarmupHistory(lastAttemptDayByProfile: [:], lastRecordByProfile: [:])
+
+    init(
+        lastAttemptDayByProfile: [String: String],
+        lastRecordByProfile: [String: WarmupRecord] = [:]
+    ) {
+        self.lastAttemptDayByProfile = lastAttemptDayByProfile
+        self.lastRecordByProfile = lastRecordByProfile
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        lastAttemptDayByProfile = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .lastAttemptDayByProfile
+        ) ?? [:]
+        lastRecordByProfile = try container.decodeIfPresent(
+            [String: WarmupRecord].self,
+            forKey: .lastRecordByProfile
+        ) ?? [:]
+    }
 }
 
 enum UsageViewState: Equatable, Sendable {
@@ -208,7 +368,9 @@ enum CodexClientError: LocalizedError, Equatable, Sendable {
     case timeout
     case identityUnavailable
     case weeklyUsageUnavailable
+    case tokenActivityUnavailable
     case loginFailed(String)
+    case warmupFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -228,8 +390,12 @@ enum CodexClientError: LocalizedError, Equatable, Sendable {
             "Codex did not return an account identity."
         case .weeklyUsageUnavailable:
             "No weekly Codex Usage window is available."
+        case .tokenActivityUnavailable:
+            "No daily Codex token activity is available."
         case let .loginFailed(message):
             "Codex login failed: \(message)"
+        case let .warmupFailed(message):
+            "Codex warmup failed: \(message)"
         }
     }
 }

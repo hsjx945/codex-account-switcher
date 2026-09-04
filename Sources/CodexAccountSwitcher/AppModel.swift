@@ -3,7 +3,7 @@ import ServiceManagement
 import SwiftUI
 
 private enum UsageRefreshResult: Sendable {
-    case success(UUID, WeeklyUsage)
+    case success(UUID, WeeklyUsage, TokenActivity?)
     case failure(UUID, String)
 }
 
@@ -38,6 +38,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var accounts: [AccountProfile] = []
     @Published private(set) var activeAccountID: UUID?
     @Published private(set) var usageStates: [UUID: UsageViewState] = [:]
+    @Published private(set) var tokenActivities: [UUID: TokenActivity] = [:]
+    @Published private(set) var localModelUsage: LocalModelUsageSummary?
+    @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
     @Published private(set) var isMutating = false
     @Published private(set) var isAddingAccount = false
@@ -49,6 +52,7 @@ final class AppModel: ObservableObject {
     private let codex: CodexClient
     private let switchService: any SwitchServicing
     private let operationGate: AccountOperationGate
+    private let localSessionScanner: LocalSessionUsageScanner
     private var hasStarted = false
     private var usageRefreshTask: Task<Void, Never>?
     private var nextUsageRefreshTask: Task<Void, Never>?
@@ -60,12 +64,14 @@ final class AppModel: ObservableObject {
         store: AccountStore,
         codex: CodexClient,
         switchService: any SwitchServicing,
-        operationGate: AccountOperationGate
+        operationGate: AccountOperationGate,
+        localSessionScanner: LocalSessionUsageScanner = .init()
     ) {
         self.store = store
         self.codex = codex
         self.switchService = switchService
         self.operationGate = operationGate
+        self.localSessionScanner = localSessionScanner
     }
 
     static func live() -> AppModel {
@@ -100,6 +106,14 @@ final class AppModel: ObservableObject {
         return usageStates[activeAccountID]?.displayedUsage?.remainingPercent
     }
 
+    var displayedAccounts: [AccountProfile] {
+        accounts.sorted { lhs, rhs in
+            if lhs.id == activeAccountID { return true }
+            if rhs.id == activeAccountID { return false }
+            return (lhs.lastUsedAt ?? lhs.createdAt) > (rhs.lastUsedAt ?? rhs.createdAt)
+        }
+    }
+
     var launchesAtLogin: Bool {
         launchAtLoginState.isOn
     }
@@ -125,7 +139,7 @@ final class AppModel: ObservableObject {
                 let identity = try await codex.readIdentity(profileHome: activeHome)
                 let profile = AccountProfile(
                     id: UUID(),
-                    displayName: identity.suggestedDisplayName,
+                    displayName: identity.email ?? identity.suggestedDisplayName,
                     email: identity.email,
                     accountID: identity.accountID,
                     createdAt: Date(),
@@ -137,6 +151,15 @@ final class AppModel: ObservableObject {
             apply(registry)
             do {
                 apply(try await store.loadUsageCache())
+            } catch {
+                showError(error)
+            }
+            do {
+                let history = try await store.loadWarmupHistory()
+                warmupStatuses = history.lastRecordByProfile.reduce(into: [:]) { values, item in
+                    guard let id = UUID(uuidString: item.key) else { return }
+                    values[id] = item.value
+                }
             } catch {
                 showError(error)
             }
@@ -206,10 +229,12 @@ final class AppModel: ObservableObject {
             for (id, home) in targets {
                 group.addTask { [codex, operationGate] in
                     do {
-                        let usage = try await operationGate.run {
-                            try await codex.readWeeklyUsage(profileHome: home)
+                        let values = try await operationGate.run {
+                            let usage = try await codex.readWeeklyUsage(profileHome: home)
+                            let tokens = try? await codex.readTokenActivity(profileHome: home)
+                            return (usage, tokens)
                         }
-                        return .success(id, usage)
+                        return .success(id, values.0, values.1)
                     } catch {
                         return .failure(id, error.localizedDescription)
                     }
@@ -217,11 +242,15 @@ final class AppModel: ObservableObject {
             }
             for await result in group {
                 switch result {
-                case let .success(id, usage):
+                case let .success(id, usage, activity):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
                     usageStates[id] = .loaded(usage)
                     do {
                         try await store.cacheWeeklyUsage(usage, profileID: id)
+                        if let activity {
+                            tokenActivities[id] = activity
+                            try await store.cacheTokenActivity(activity, profileID: id)
+                        }
                     } catch {
                         showError(error)
                     }
@@ -233,6 +262,89 @@ final class AppModel: ObservableObject {
                         usageStates[id] = .unavailable(message)
                     }
                 }
+            }
+        }
+        if settings.showsTokenActivity {
+            localModelUsage = await localSessionScanner.scan()
+        }
+        await performScheduledWarmupIfNeeded()
+    }
+
+    private func performScheduledWarmupIfNeeded(now: Date = Date()) async {
+        guard settings.automaticWarmupEnabled else { return }
+        let calendar = Calendar.current
+        guard let scheduled = calendar.date(
+            bySettingHour: settings.warmupHour,
+            minute: settings.warmupMinute,
+            second: 0,
+            of: now
+        ), now >= scheduled else { return }
+
+        let day = Self.localDayString(now, calendar: calendar)
+        let history: WarmupHistory
+        do {
+            history = try await store.loadWarmupHistory()
+        } catch {
+            showError(error)
+            return
+        }
+
+        for account in displayedAccounts {
+            guard history.lastAttemptDayByProfile[account.id.uuidString] != day else { continue }
+            guard case let .loaded(currentUsage) = usageStates[account.id],
+                  currentUsage.fiveHourResetsAt == nil || currentUsage.fiveHourResetsAt! <= now
+            else { continue }
+
+            do {
+                // Persist before the network request so an app restart cannot duplicate a warmup.
+                try await store.recordWarmupAttempt(
+                    profileID: account.id,
+                    day: day,
+                    attemptedAt: now
+                )
+                warmupStatuses[account.id] = WarmupRecord(
+                    attemptedAt: now,
+                    outcome: .attempting,
+                    model: nil
+                )
+                let result = try await operationGate.run { [codex, store] in
+                    let registry = try await store.loadRegistry()
+                    let isActive = registry.activeAccountID == account.id
+                    let home = isActive
+                        ? await store.activeCodexHome()
+                        : await store.profileHome(id: account.id)
+                    let model = try await codex.warmup(profileHome: home)
+                    do {
+                        if isActive {
+                            try await store.saveCurrentCredential()
+                        }
+                        let usage = try await codex.readWeeklyUsage(profileHome: home)
+                        return (model, Optional(usage))
+                    } catch {
+                        return (model, nil)
+                    }
+                }
+                if let usage = result.1 {
+                    usageStates[account.id] = .loaded(usage)
+                    try await store.cacheWeeklyUsage(usage, profileID: account.id)
+                }
+                let isConfirmed = result.1?.fiveHourResetsAt.map { $0 > now } == true
+                let record = WarmupRecord(
+                    attemptedAt: now,
+                    outcome: isConfirmed ? .confirmed : .unconfirmed,
+                    model: result.0
+                )
+                warmupStatuses[account.id] = record
+                try await store.recordWarmupResult(profileID: account.id, record: record)
+            } catch {
+                let record = WarmupRecord(
+                    attemptedAt: now,
+                    outcome: .failed,
+                    model: nil
+                )
+                warmupStatuses[account.id] = record
+                try? await store.recordWarmupResult(profileID: account.id, record: record)
+                showError(error)
             }
         }
     }
@@ -295,7 +407,7 @@ final class AppModel: ObservableObject {
             try Task.checkCancellation()
             let profile = AccountProfile(
                 id: id,
-                displayName: identity.suggestedDisplayName,
+                displayName: identity.email ?? identity.suggestedDisplayName,
                 email: identity.email,
                 accountID: identity.accountID,
                 createdAt: Date(),
@@ -322,6 +434,19 @@ final class AppModel: ObservableObject {
             }
             apply(try await store.loadRegistry())
             usageStates[id] = nil
+            tokenActivities[id] = nil
+        } catch {
+            showError(error)
+        }
+    }
+
+    func updateNickname(id: UUID, nickname: String?) async {
+        guard !isMutating else { return }
+        isMutating = true
+        defer { isMutating = false }
+        do {
+            try await store.updateNickname(id: id, nickname: nickname)
+            apply(try await store.loadRegistry())
         } catch {
             showError(error)
         }
@@ -347,6 +472,47 @@ final class AppModel: ObservableObject {
 
     func setShowsFiveHourUsage(_ enabled: Bool) async {
         settings.showsFiveHourUsage = enabled
+        do {
+            try await store.saveSettings(settings)
+        } catch {
+            showError(error)
+        }
+    }
+
+    func setAccountNameStyle(_ style: AccountNameStyle) async {
+        settings.accountNameStyle = style
+        await persistSettings()
+    }
+
+    func setShowsTokenActivity(_ enabled: Bool) async {
+        settings.showsTokenActivity = enabled
+        await persistSettings()
+        if enabled { refreshWeeklyUsage() }
+    }
+
+    func setAutomaticWarmupEnabled(_ enabled: Bool) async {
+        settings.automaticWarmupEnabled = enabled
+        await persistSettings()
+        if enabled { refreshWeeklyUsage() }
+    }
+
+    func setWarmupTime(_ date: Date) async {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        settings.warmupHour = components.hour ?? 8
+        settings.warmupMinute = components.minute ?? 30
+        await persistSettings()
+    }
+
+    var warmupTime: Date {
+        Calendar.current.date(
+            bySettingHour: settings.warmupHour,
+            minute: settings.warmupMinute,
+            second: 0,
+            of: Date()
+        ) ?? Date()
+    }
+
+    private func persistSettings() async {
         do {
             try await store.saveSettings(settings)
         } catch {
@@ -385,12 +551,17 @@ final class AppModel: ObservableObject {
         accounts = registry.accounts
         activeAccountID = registry.activeAccountID
         usageStates = usageStates.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
+        tokenActivities = tokenActivities.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
+        warmupStatuses = warmupStatuses.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
     }
 
     private func apply(_ cache: UsageCache) {
         let validAccountIDs = Set(accounts.map(\.id))
         for entry in cache.entries where validAccountIDs.contains(entry.profileID) {
             usageStates[entry.profileID] = .loaded(entry.usage)
+            if let activity = entry.tokenActivity {
+                tokenActivities[entry.profileID] = activity
+            }
         }
     }
 
@@ -416,6 +587,16 @@ final class AppModel: ObservableObject {
             messageKey: nil,
             message: error.localizedDescription,
             underlyingDescription: String(describing: error)
+        )
+    }
+
+    private static func localDayString(_ date: Date, calendar: Calendar) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
         )
     }
 }

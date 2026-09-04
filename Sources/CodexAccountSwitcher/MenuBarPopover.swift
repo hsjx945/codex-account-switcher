@@ -72,7 +72,7 @@ struct MenuBarPopover: View {
                     .padding(.vertical, 28)
             } else {
                 VStack(spacing: 2) {
-                    ForEach(model.accounts) { account in
+                    ForEach(model.displayedAccounts) { account in
                         Button {
                             if account.id == model.activeAccountID {
                                 NSApp.keyWindow?.close()
@@ -85,7 +85,11 @@ struct MenuBarPopover: View {
                                 usageState: model.usageStates[account.id] ?? .idle,
                                 isActive: account.id == model.activeAccountID,
                                 language: model.settings.language,
-                                showsFiveHourUsage: model.settings.showsFiveHourUsage
+                                showsFiveHourUsage: model.settings.showsFiveHourUsage,
+                                nameStyle: model.settings.accountNameStyle,
+                                tokenActivity: model.tokenActivities[account.id],
+                                showsTokenActivity: model.settings.showsTokenActivity,
+                                warmupStatus: model.warmupStatuses[account.id]
                             )
                         }
                         .buttonStyle(.plain)
@@ -93,6 +97,15 @@ struct MenuBarPopover: View {
                     }
                 }
                 .padding(5)
+
+                if model.settings.showsTokenActivity,
+                   let summary = model.localModelUsage,
+                   !summary.models.isEmpty {
+                    LocalModelUsageView(
+                        summary: summary,
+                        language: model.settings.language
+                    )
+                }
             }
 
             Divider()
@@ -127,6 +140,41 @@ struct MenuBarPopover: View {
     }
 }
 
+private struct LocalModelUsageView: View {
+    let summary: LocalModelUsageSummary
+    let language: AppLanguage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.string("local_models_title", language: language))
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.secondary)
+            ForEach(summary.models.prefix(3)) { usage in
+                HStack(spacing: 6) {
+                    Text(usage.model)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Text("\(L10n.string("today", language: language)) \(format(usage.todayTokens))")
+                    Text("7d \(format(usage.sevenDayTokens))")
+                    Text("30d \(format(usage.thirtyDayTokens))")
+                }
+                .font(.system(size: 9).monospacedDigit())
+                .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 7)
+        .help(L10n.string("local_models_hint", language: language))
+    }
+
+    private func format(_ tokens: Int) -> String {
+        if tokens >= 1_000_000 { return String(format: "%.1fM", Double(tokens) / 1_000_000) }
+        if tokens >= 1_000 { return String(format: "%.1fK", Double(tokens) / 1_000) }
+        return String(tokens)
+    }
+}
+
 private enum PopoverPage {
     case accounts
     case manageAccounts
@@ -143,7 +191,10 @@ private struct SwitchConfirmationPage: View {
     var body: some View {
         VStack(spacing: 0) {
             PopoverHeader(
-                title: model.format("switch_title", account.displayName),
+                title: model.format(
+                    "switch_title",
+                    account.primaryLabel(style: model.settings.accountNameStyle)
+                ),
                 backTitle: model.text("cancel"),
                 onBack: onCancel
             )

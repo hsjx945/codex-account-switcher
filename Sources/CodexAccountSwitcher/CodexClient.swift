@@ -358,11 +358,21 @@ protocol WeeklyUsageReading: Sendable {
     func readWeeklyUsage(profileHome: URL) async throws -> WeeklyUsage
 }
 
+protocol TokenActivityReading: Sendable {
+    func readTokenActivity(profileHome: URL) async throws -> TokenActivity
+}
+
+protocol WarmupServicing: Sendable {
+    func warmup(profileHome: URL) async throws -> String
+}
+
 protocol LoginServicing: Sendable {
     func login(profileHome: URL) async throws -> AccountIdentity
 }
 
-struct CodexClient: CodexIdentityReading, WeeklyUsageReading, LoginServicing {
+struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReading, LoginServicing,
+    WarmupServicing
+{
     let locator: CodexExecutableLocator
     let requestTimeout: Duration
 
@@ -392,6 +402,89 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, LoginServicing {
             )
         }
         return try WeeklyUsageNormalizer.normalize(parseWindows(result))
+    }
+
+    func readTokenActivity(profileHome: URL) async throws -> TokenActivity {
+        let result = try await withSession(profileHome: profileHome) { session in
+            try await session.request(
+                method: "account/usage/read",
+                id: 1,
+                timeout: requestTimeout
+            )
+        }
+        guard let buckets = result["dailyUsageBuckets"]?.arrayValue else {
+            throw CodexClientError.tokenActivityUnavailable
+        }
+        let daily = buckets.compactMap { value -> DailyTokenUsage? in
+            guard let startDate = value["startDate"]?.stringValue,
+                  let tokens = value["tokens"]?.intValue
+            else { return nil }
+            return DailyTokenUsage(startDate: startDate, tokens: max(tokens, 0))
+        }
+        guard daily.count == buckets.count else { throw CodexClientError.malformedResponse }
+        return TokenActivity(
+            dailyBuckets: daily.sorted { $0.startDate < $1.startDate },
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+    }
+
+    func warmup(profileHome: URL) async throws -> String {
+        let model = try await preferredWarmupModel(profileHome: profileHome)
+        let executable = try locator.locate()
+        let workingDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "codex-switcher-warmup-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+
+        let process = Process()
+        process.executableURL = executable
+        process.currentDirectoryURL = workingDirectory
+        process.arguments = [
+            "exec",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--skip-git-repo-check",
+            "--model", model,
+            "--sandbox", "read-only",
+            "--color", "never",
+            "Reply with READY only. Do not use tools.",
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CODEX_HOME"] = profileHome.path
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            throw CodexClientError.processLaunchFailed(error.localizedDescription)
+        }
+        let status = await withTaskGroup(of: Int32?.self) { group in
+            group.addTask {
+                process.waitUntilExit()
+                return process.terminationStatus
+            }
+            group.addTask { [requestTimeout] in
+                try? await Task.sleep(for: requestTimeout)
+                return Task.isCancelled ? Int32?.some(-1) : nil
+            }
+            let first = await group.next() ?? nil
+            if first == nil, process.isRunning {
+                process.terminate()
+            }
+            group.cancelAll()
+            return first
+        }
+        guard let status else { throw CodexClientError.timeout }
+        guard status == 0 else {
+            throw CodexClientError.warmupFailed("codex exec exited with status \(status)")
+        }
+        return model
     }
 
     func login(profileHome: URL) async throws -> AccountIdentity {
@@ -476,6 +569,28 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, LoginServicing {
             throw CodexClientError.identityUnavailable
         }
         return AccountIdentity(accountID: accountID, email: email)
+    }
+
+    private func preferredWarmupModel(profileHome: URL) async throws -> String {
+        let result = try await withSession(profileHome: profileHome) { session in
+            try await session.request(
+                method: "model/list",
+                id: 1,
+                params: ["limit": 100, "includeHidden": false],
+                timeout: requestTimeout
+            )
+        }
+        let models = (result["data"]?.arrayValue ?? []).compactMap {
+            $0["model"]?.stringValue ?? $0["id"]?.stringValue
+        }
+        guard !models.isEmpty else { throw CodexClientError.warmupFailed("No available model was returned.") }
+        let preferredMarkers = ["luna", "spark", "mini"]
+        for marker in preferredMarkers {
+            if let model = models.first(where: { $0.localizedCaseInsensitiveContains(marker) }) {
+                return model
+            }
+        }
+        throw CodexClientError.warmupFailed("No verified small model is available.")
     }
 
     private func parseWindows(_ value: JSONValue) -> [RateLimitWindow] {

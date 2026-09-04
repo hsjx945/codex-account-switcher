@@ -19,6 +19,10 @@ struct ManageAccountsView: View {
             switch page {
             case .accounts:
                 accountList
+            case let .edit(account):
+                NicknameEditor(model: model, account: account) {
+                    page = .accounts
+                }
             case let .remove(account):
                 removePage(account)
             }
@@ -29,8 +33,13 @@ struct ManageAccountsView: View {
         switch page {
         case .accounts:
             model.text("accounts")
+        case .edit:
+            model.text("edit_nickname")
         case let .remove(account):
-            model.format("remove_title", account.displayName)
+            model.format(
+                "remove_title",
+                account.primaryLabel(style: model.settings.accountNameStyle)
+            )
         }
     }
 
@@ -38,7 +47,7 @@ struct ManageAccountsView: View {
         switch page {
         case .accounts:
             onBack()
-        case .remove:
+        case .edit, .remove:
             page = .accounts
         }
     }
@@ -58,7 +67,7 @@ struct ManageAccountsView: View {
                 .padding(.vertical, 24)
             } else {
                 VStack(spacing: 2) {
-                    ForEach(model.accounts) { account in
+                    ForEach(model.displayedAccounts) { account in
                         managedAccountRow(account)
                     }
                 }
@@ -150,11 +159,11 @@ struct ManageAccountsView: View {
                 .background(Color.primary.opacity(0.10), in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(account.displayName)
+                Text(account.primaryLabel(style: model.settings.accountNameStyle))
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
-                if let email = account.email {
-                    Text(email)
+                if let secondary = account.secondaryLabel(style: model.settings.accountNameStyle) {
+                    Text(secondary)
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -162,6 +171,17 @@ struct ManageAccountsView: View {
             }
 
             Spacer(minLength: 5)
+
+            Button {
+                page = .edit(account)
+            } label: {
+                Image(systemName: "pencil")
+                    .frame(width: 25, height: 25)
+            }
+            .buttonStyle(.plain)
+            .help(model.text("edit_nickname"))
+            .accessibilityLabel(model.text("edit_nickname"))
+            .disabled(model.isMutating)
 
             if account.id == model.activeAccountID {
                 Text(model.text("active"))
@@ -175,8 +195,8 @@ struct ManageAccountsView: View {
                         .frame(width: 25, height: 25)
                 }
                 .buttonStyle(.plain)
-                .help(model.format("remove_title", account.displayName))
-                .accessibilityLabel(model.format("remove_title", account.displayName))
+                .help(model.format("remove_title", account.primaryLabel(style: model.settings.accountNameStyle)))
+                .accessibilityLabel(model.format("remove_title", account.primaryLabel(style: model.settings.accountNameStyle)))
                 .disabled(model.isMutating)
             }
         }
@@ -189,7 +209,57 @@ struct ManageAccountsView: View {
 
 private enum ManageAccountsPage {
     case accounts
+    case edit(AccountProfile)
     case remove(AccountProfile)
+}
+
+private struct NicknameEditor: View {
+    @ObservedObject var model: AppModel
+    let account: AccountProfile
+    let onDone: () -> Void
+    @State private var nickname: String
+
+    init(model: AppModel, account: AccountProfile, onDone: @escaping () -> Void) {
+        self.model = model
+        self.account = account
+        self.onDone = onDone
+        _nickname = State(initialValue: account.nickname ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let email = account.email {
+                Text(email)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            TextField(model.text("nickname"), text: $nickname)
+                .textFieldStyle(.roundedBorder)
+
+            Text(model.text("nickname_hint"))
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 7) {
+                Button(model.text("cancel"), action: onDone)
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+
+                Button(model.text("save")) {
+                    Task {
+                        await model.updateNickname(id: account.id, nickname: nickname)
+                        onDone()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity)
+                .disabled(model.isMutating)
+            }
+        }
+        .padding(14)
+    }
 }
 
 struct PopoverHeader: View {

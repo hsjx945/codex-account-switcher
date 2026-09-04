@@ -191,12 +191,20 @@ struct AccountStoreTests {
         #expect(legacySettings.language == .english)
         #expect(legacySettings.showsMenuBarPercentage)
         #expect(!legacySettings.showsFiveHourUsage)
+        #expect(legacySettings.accountNameStyle == .email)
+        #expect(legacySettings.showsTokenActivity)
+        #expect(!legacySettings.automaticWarmupEnabled)
         #expect(!AppSettings.default.showsFiveHourUsage)
 
         let updatedSettings = AppSettings(
             language: .simplifiedChinese,
             showsMenuBarPercentage: false,
-            showsFiveHourUsage: true
+            showsFiveHourUsage: true,
+            accountNameStyle: .nicknameAndEmail,
+            showsTokenActivity: false,
+            automaticWarmupEnabled: true,
+            warmupHour: 9,
+            warmupMinute: 15
         )
         try await fixture.store.saveSettings(updatedSettings)
         let reloadedStore = AccountStore(
@@ -205,6 +213,30 @@ struct AccountStoreTests {
         )
         #expect(try await reloadedStore.loadSettings() == updatedSettings)
         #expect(try permissions(settingsURL) == 0o600)
+    }
+
+    @Test func persistsEditableNicknameWithoutChangingEmailIdentity() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.remove() }
+        let profile = AccountProfile(
+            id: UUID(),
+            displayName: "user@example.com",
+            email: "user@example.com",
+            accountID: "account-id",
+            createdAt: Date(),
+            lastUsedAt: nil
+        )
+        try await fixture.store.importCurrentProfile(profile)
+
+        try await fixture.store.updateNickname(id: profile.id, nickname: "  Main Plus  ")
+        var loaded = try await fixture.store.profile(id: profile.id)
+        #expect(loaded.nickname == "Main Plus")
+        #expect(loaded.email == "user@example.com")
+
+        try await fixture.store.updateNickname(id: profile.id, nickname: "   ")
+        loaded = try await fixture.store.profile(id: profile.id)
+        #expect(loaded.nickname == nil)
+        #expect(loaded.primaryLabel(style: .nickname) == "user@example.com")
     }
 
     @Test func decodesLegacyWeeklyOnlyUsageCache() async throws {
