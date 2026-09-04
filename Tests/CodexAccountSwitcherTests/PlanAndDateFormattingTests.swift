@@ -23,7 +23,23 @@ struct PlanAndDateFormattingTests {
                 lastUsedAt: nil
             )
             #expect(profile.subscriptionBadge == argument.badge, "plan type: \(String(describing: argument.planType))")
+            #expect(profile.supportsFiveHourUsage == !["pro", "prolite"].contains(argument.planType))
         }
+    }
+
+    @Test func distinguishesMissingTodayBucketFromZeroUsage() throws {
+        let activity = TokenActivity(
+            dailyBuckets: [DailyTokenUsage(startDate: "2026-09-03", tokens: 100)],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-09-04T04:00:00Z"))
+
+        #expect(activity.tokensForToday(now: now, calendar: calendar) == nil)
+        #expect(activity.tokensIfCovered(inLastDays: 1, now: now, calendar: calendar) == nil)
+        #expect(activity.tokensIfCovered(inLastDays: 7, now: now, calendar: calendar) == 100)
     }
 
     @Test func formatsDatesInChineseUsingBeijingTime() throws {

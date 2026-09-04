@@ -28,6 +28,13 @@ struct AccountProfile: Codable, Identifiable, Equatable, Hashable, Sendable {
         }
     }
 
+    var supportsFiveHourUsage: Bool {
+        switch planType?.lowercased() {
+        case "pro", "prolite": false
+        default: true
+        }
+    }
+
     func primaryLabel(style: AccountNameStyle) -> String {
         switch style {
         case .email:
@@ -173,12 +180,24 @@ struct TokenActivity: Codable, Equatable, Sendable {
     let modelBreakdown: [ModelTokenUsage]
     let localModelCoverageStartedAt: Date?
 
-    func tokens(inLastDays days: Int, now: Date = Date(), calendar: Calendar = .current) -> Int {
+    func tokens(
+        inLastDays days: Int,
+        now: Date = Date(),
+        calendar: Calendar = BeijingDateTimeFormatter.calendar
+    ) -> Int {
+        tokensIfCovered(inLastDays: days, now: now, calendar: calendar) ?? 0
+    }
+
+    func tokensIfCovered(
+        inLastDays days: Int,
+        now: Date = Date(),
+        calendar: Calendar = BeijingDateTimeFormatter.calendar
+    ) -> Int? {
         let today = calendar.startOfDay(for: now)
         guard days > 0,
               let start = calendar.date(byAdding: .day, value: -(days - 1), to: today)
-        else { return 0 }
-        return dailyBuckets.reduce(into: 0) { total, bucket in
+        else { return nil }
+        let coveredTokens = dailyBuckets.compactMap { bucket -> Int? in
             let parts = bucket.startDate.split(separator: "-").compactMap { Int($0) }
             guard parts.count == 3,
                   let date = calendar.date(
@@ -186,9 +205,25 @@ struct TokenActivity: Codable, Equatable, Sendable {
                   ),
                   date >= start,
                   date <= today
-            else { return }
-            total += bucket.tokens
+            else { return nil }
+            return bucket.tokens
         }
+        guard !coveredTokens.isEmpty else { return nil }
+        return coveredTokens.reduce(0, +)
+    }
+
+    func tokensForToday(
+        now: Date = Date(),
+        calendar: Calendar = BeijingDateTimeFormatter.calendar
+    ) -> Int? {
+        let components = calendar.dateComponents([.year, .month, .day], from: now)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            return nil
+        }
+        let key = String(format: "%04d-%02d-%02d", year, month, day)
+        let matches = dailyBuckets.filter { $0.startDate == key }
+        guard !matches.isEmpty else { return nil }
+        return matches.reduce(0) { $0 + $1.tokens }
     }
 }
 
@@ -388,10 +423,16 @@ struct AccountIdentity: Equatable, Sendable {
 }
 
 enum BeijingDateTimeFormatter {
+    static var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return calendar
+    }
+
     static func string(from date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.calendar = calendar
         formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
         formatter.dateFormat = "M月d日 HH:mm"
         return formatter.string(from: date)

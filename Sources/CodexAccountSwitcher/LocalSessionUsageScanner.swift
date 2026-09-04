@@ -31,11 +31,20 @@ actor LocalSessionUsageScanner {
         self.fileManager = fileManager
     }
 
-    func scan(now: Date = Date(), calendar: Calendar = .current) -> LocalModelUsageSummary {
+    func scan(
+        now: Date = Date(),
+        calendar: Calendar = BeijingDateTimeFormatter.calendar,
+        historyDays: Int = 1
+    ) -> LocalModelUsageSummary {
         let today = calendar.startOfDay(for: now)
         let sevenDayStart = calendar.date(byAdding: .day, value: -6, to: today) ?? today
         let thirtyDayStart = calendar.date(byAdding: .day, value: -29, to: today) ?? today
-        let fileCutoff = calendar.date(byAdding: .day, value: -31, to: today) ?? thirtyDayStart
+        let boundedHistoryDays = min(max(historyDays, 1), 30)
+        let fileCutoff = calendar.date(
+            byAdding: .day,
+            value: -(boundedHistoryDays - 1),
+            to: today
+        ) ?? today
 
         var totals: [String: (today: Int, seven: Int, thirty: Int)] = [:]
         var earliest: Date?
@@ -90,8 +99,7 @@ actor LocalSessionUsageScanner {
         _ url: URL,
         onUsage: (_ timestamp: Date, _ model: String, _ tokens: Int) -> Void
     ) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
-        defer { try? handle.close() }
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return }
 
         var currentModel = "Unknown model"
         var lastCumulativeTokens = 0
@@ -99,48 +107,48 @@ actor LocalSessionUsageScanner {
         isoWithFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let isoWithoutFractionalSeconds = ISO8601DateFormatter()
         isoWithoutFractionalSeconds.formatOptions = [.withInternetDateTime]
+        let turnContextMarker = Data(#""turn_context""#.utf8)
+        let tokenCountMarker = Data(#""token_count""#.utf8)
+        var searchStart = data.startIndex
 
-        forEachLine(in: handle) { line in
+        while searchStart < data.endIndex {
+            let searchRange = searchStart..<data.endIndex
+            let nextContext = data.range(of: turnContextMarker, in: searchRange)?.lowerBound
+            let nextToken = data.range(of: tokenCountMarker, in: searchRange)?.lowerBound
+            guard let markerStart = [nextContext, nextToken].compactMap({ $0 }).min() else { break }
+
+            let lineStart = data[searchStart..<markerStart].lastIndex(of: 0x0A)
+                .map { data.index(after: $0) } ?? searchStart
+            let lineEnd = data[markerStart..<data.endIndex].firstIndex(of: 0x0A) ?? data.endIndex
+            let line = data[lineStart..<lineEnd]
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                   let type = object["type"] as? String,
                   let payload = object["payload"] as? [String: Any]
-            else { return }
+            else {
+                searchStart = lineEnd < data.endIndex ? data.index(after: lineEnd) : data.endIndex
+                continue
+            }
 
             if type == "turn_context", let model = payload["model"] as? String, !model.isEmpty {
                 currentModel = model
-                return
+            } else if type == "event_msg",
+                      payload["type"] as? String == "token_count",
+                      let info = payload["info"] as? [String: Any],
+                      let total = info["total_token_usage"] as? [String: Any],
+                      let cumulative = Self.integer(total["total_tokens"]),
+                      let timestampText = object["timestamp"] as? String,
+                      let timestamp = isoWithFractionalSeconds.date(from: timestampText)
+                        ?? isoWithoutFractionalSeconds.date(from: timestampText) {
+                // Codex emits cumulative session usage and can repeat the same value for
+                // rate-limit-only events. Delta accounting avoids counting those repeats.
+                let delta = cumulative >= lastCumulativeTokens
+                    ? cumulative - lastCumulativeTokens
+                    : cumulative
+                lastCumulativeTokens = cumulative
+                onUsage(timestamp, currentModel, delta)
             }
-            guard type == "event_msg",
-                  payload["type"] as? String == "token_count",
-                  let info = payload["info"] as? [String: Any],
-                  let total = info["total_token_usage"] as? [String: Any],
-                  let cumulative = Self.integer(total["total_tokens"]),
-                  let timestampText = object["timestamp"] as? String,
-                  let timestamp = isoWithFractionalSeconds.date(from: timestampText)
-                    ?? isoWithoutFractionalSeconds.date(from: timestampText)
-            else { return }
-
-            // Codex emits cumulative session usage and can repeat the same value for
-            // rate-limit-only events. Delta accounting avoids counting those repeats.
-            let delta = cumulative >= lastCumulativeTokens
-                ? cumulative - lastCumulativeTokens
-                : cumulative
-            lastCumulativeTokens = cumulative
-            onUsage(timestamp, currentModel, delta)
+            searchStart = lineEnd < data.endIndex ? data.index(after: lineEnd) : data.endIndex
         }
-    }
-
-    private func forEachLine(in handle: FileHandle, body: (Data) -> Void) {
-        var buffer = Data()
-        while let chunk = try? handle.read(upToCount: 64 * 1_024), !chunk.isEmpty {
-            buffer.append(chunk)
-            while let newline = buffer.firstIndex(of: 0x0A) {
-                let line = Data(buffer[..<newline])
-                buffer.removeSubrange(...newline)
-                if !line.isEmpty { body(line) }
-            }
-        }
-        if !buffer.isEmpty { body(buffer) }
     }
 
     private static func integer(_ value: Any?) -> Int? {

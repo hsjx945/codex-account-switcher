@@ -8,52 +8,45 @@ struct AccountRow: View {
     let showsFiveHourUsage: Bool
     let nameStyle: AccountNameStyle
     let tokenActivity: TokenActivity?
+    let localModelUsage: LocalModelUsageSummary?
     let showsTokenActivity: Bool
     let warmupStatus: WarmupRecord?
     @State private var isHovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(account.primaryLabel(style: nameStyle))
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 16, weight: .bold))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if let secondary = account.secondaryLabel(style: nameStyle) {
                         Text(secondary)
-                            .font(.system(size: 10.5))
+                            .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                 }
-                Spacer(minLength: 8)
-                if let badge = account.subscriptionBadge {
-                    Text(badge)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color.primary.opacity(0.68))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.primary.opacity(0.065), in: Capsule())
-                }
+                Spacer(minLength: 12)
                 if isActive {
                     Text(L10n.string("active", language: language))
-                        .font(.system(size: 9.5, weight: .semibold))
+                        .font(.system(size: 10.5, weight: .bold))
                         .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.09), in: Capsule())
+                        .frame(width: 42, height: 22)
+                        .background(Color.accentColor.opacity(0.13), in: Capsule())
                 }
-                if let usage = usageState.displayedUsage, !showsFiveHourUsage {
-                    Text(resetText(for: usage))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                } else if let message = usageState.refreshError {
+                if let badge = account.subscriptionBadge {
+                    Text(badge)
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(Color.primary.opacity(0.72))
+                        .frame(width: 62, height: 22)
+                        .background(Color.primary.opacity(0.075), in: Capsule())
+                }
+                if let message = usageState.refreshError {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(.orange)
                         .help(message)
                         .accessibilityLabel(message)
@@ -62,17 +55,27 @@ struct AccountRow: View {
 
             usageContent
 
-            if showsTokenActivity, let tokenActivity {
-                tokenContent(tokenActivity)
+            if showsTokenActivity {
+                if isActive {
+                    if let localModelUsage {
+                        localTokenContent(localModelUsage, serverActivity: tokenActivity)
+                    } else {
+                        Label(L10n.string("token_scanning", language: language), systemImage: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let tokenActivity {
+                    tokenContent(tokenActivity)
+                }
             }
 
             if let warmupStatus {
                 warmupContent(warmupStatus)
             }
         }
-        .frame(minHeight: 62)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(minHeight: 72)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .contentShape(Rectangle())
         .background(
             rowBackground,
@@ -81,17 +84,9 @@ struct AccountRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(
-                    isActive ? Color.accentColor.opacity(0.24) : Color.primary.opacity(0.055),
-                    lineWidth: 0.75
+                    isActive ? Color.accentColor.opacity(0.42) : Color.primary.opacity(0.06),
+                    lineWidth: isActive ? 1 : 0.75
                 )
-        }
-        .overlay(alignment: .leading) {
-            if isActive {
-                Capsule()
-                    .fill(Color.accentColor.opacity(0.75))
-                    .frame(width: 3, height: 30)
-                    .padding(.leading, 5)
-            }
         }
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
@@ -99,18 +94,46 @@ struct AccountRow: View {
     }
 
     private func tokenContent(_ activity: TokenActivity) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 14) {
-                tokenMetric("today", activity.tokens(inLastDays: 1))
-                tokenMetric("last_7_days", activity.tokens(inLastDays: 7))
-                tokenMetric("last_30_days", activity.tokens(inLastDays: 30))
-            }
+        HStack(spacing: 16) {
+            tokenMetric("sun.max", "today", activity.tokensForToday())
+            tokenMetric("calendar", "last_7_days", activity.tokensIfCovered(inLastDays: 7))
+            tokenMetric("calendar.badge.clock", "last_30_days", activity.tokensIfCovered(inLastDays: 30))
         }
     }
 
-    private func tokenMetric(_ key: String, _ tokens: Int) -> some View {
-        Text("\(L10n.string(key, language: language)) \(formatTokens(tokens))")
-            .font(.system(size: 9.5).monospacedDigit())
+    private func localTokenContent(
+        _ summary: LocalModelUsageSummary,
+        serverActivity: TokenActivity?
+    ) -> some View {
+        let today = summary.models.reduce(0) { $0 + $1.todayTokens }
+        let seven = serverActivity?.tokensIfCovered(inLastDays: 7)
+        let thirty = serverActivity?.tokensIfCovered(inLastDays: 30)
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 16) {
+                tokenMetric("sun.max.fill", "today", today)
+                tokenMetric("calendar", "last_7_days", seven)
+                tokenMetric("calendar.badge.clock", "last_30_days", thirty)
+            }
+            if !summary.models.isEmpty {
+                Label(
+                    summary.models.prefix(3).map { "\($0.model) \(formatTokens($0.todayTokens))" }.joined(separator: " · "),
+                    systemImage: "cpu"
+                )
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            }
+        }
+        .help(L10n.string("local_models_hint", language: language))
+    }
+
+    private func tokenMetric(_ systemImage: String, _ key: String, _ tokens: Int?) -> some View {
+        Label(
+            "\(L10n.string(key, language: language)) \(tokens.map(formatTokens) ?? "—")",
+            systemImage: systemImage
+        )
+            .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
     }
@@ -125,7 +148,7 @@ struct AccountRow: View {
         let timestamp = BeijingDateTimeFormatter.string(from: record.attemptedAt)
         let model = record.model.map { " · \($0)" } ?? ""
         return Text("\(L10n.string(key, language: language)) · \(timestamp)\(model)")
-            .font(.system(size: 9.5))
+            .font(.system(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -154,7 +177,7 @@ struct AccountRow: View {
                 .foregroundStyle(.secondary)
                 .help(message)
         case let .loaded(usage), let .stale(usage, _):
-            if showsFiveHourUsage {
+            if shouldShowFiveHourUsage {
                 expandedUsageContent(usage)
             } else {
                 compactWeeklyUsageContent(usage)
@@ -163,14 +186,16 @@ struct AccountRow: View {
     }
 
     private func compactWeeklyUsageContent(_ usage: WeeklyUsage) -> some View {
-        HStack(spacing: 7) {
-            Text(L10n.string("usage", language: language))
-                .font(.system(size: 10.5))
+        HStack(spacing: 10) {
+            Image(systemName: "calendar")
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .frame(width: 24)
+                .accessibilityLabel(L10n.string("weekly", language: language))
 
             if let message = usageState.refreshError {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: 11))
                     .foregroundStyle(.orange)
                     .help(message)
                     .accessibilityLabel(message)
@@ -181,8 +206,15 @@ struct AccountRow: View {
                 .accessibilityValue("\(usage.remainingPercent)\(L10n.string("left", language: language))")
 
             Text("\(usage.remainingPercent)\(L10n.string("left", language: language))")
-                .font(.system(size: 10.5).monospacedDigit())
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .trailing)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Text(resetText(for: usage))
+                .font(.system(size: 11.5).monospacedDigit())
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
     }
@@ -192,13 +224,15 @@ struct AccountRow: View {
             if let remaining = usage.fiveHourRemainingPercent,
                let resetsAt = usage.fiveHourResetsAt {
                 limitRow(
-                    title: L10n.string("five_hour", language: language),
+                    systemImage: "clock",
+                    accessibilityTitle: L10n.string("five_hour", language: language),
                     remainingPercent: remaining,
                     resetsAt: resetsAt
                 )
             }
             limitRow(
-                title: L10n.string("weekly", language: language),
+                systemImage: "calendar",
+                accessibilityTitle: L10n.string("weekly", language: language),
                 remainingPercent: usage.remainingPercent,
                 resetsAt: usage.resetsAt
             )
@@ -206,28 +240,29 @@ struct AccountRow: View {
     }
 
     private func limitRow(
-        title: String,
+        systemImage: String,
+        accessibilityTitle: String,
         remainingPercent: Int,
         resetsAt: Date
     ) -> some View {
-        HStack(spacing: 9) {
-            Text(title)
-                .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 38, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 24)
+                .accessibilityLabel(accessibilityTitle)
 
             UsageBar(remainingPercent: remainingPercent)
-                .accessibilityLabel(title)
+                .accessibilityLabel(accessibilityTitle)
                 .accessibilityValue("\(remainingPercent)\(L10n.string("left", language: language))")
 
             Text("\(remainingPercent)%")
-                .font(.system(size: 10.5).monospacedDigit())
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 31, alignment: .trailing)
+                .frame(width: 38, alignment: .trailing)
 
             Text(resetText(for: resetsAt))
-                .font(.system(size: 9.5).monospacedDigit())
+                .font(.system(size: 11.5).monospacedDigit())
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -236,9 +271,13 @@ struct AccountRow: View {
 
     private var rowBackground: Color {
         if isActive {
-            return Color(nsColor: .controlBackgroundColor).opacity(0.92)
+            return Color.accentColor.opacity(0.15)
         }
-        return Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.72 : 0.46)
+        return Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.70 : 0.38)
+    }
+
+    private var shouldShowFiveHourUsage: Bool {
+        showsFiveHourUsage && account.supportsFiveHourUsage
     }
 
     private func resetText(for usage: WeeklyUsage) -> String {
@@ -264,7 +303,7 @@ private struct UsageBar: View {
                     .frame(width: geometry.size.width * fraction)
             }
         }
-        .frame(width: 104, height: 4)
+        .frame(width: 120, height: 5)
     }
 
     private var fraction: CGFloat {

@@ -283,6 +283,32 @@ struct CoreChecks {
         try require(proProfile.subscriptionBadge == "PRO 20X", "pro plan identification")
         try require(proLiteProfile.subscriptionBadge == "PRO 5X", "pro lite plan identification")
         try require(unknownProfile.subscriptionBadge == nil, "unknown plan does not get a badge")
+        try require(plusProfile.supportsFiveHourUsage, "plus may show five-hour usage")
+        try require(!proProfile.supportsFiveHourUsage, "pro never shows five-hour usage")
+        try require(!proLiteProfile.supportsFiveHourUsage, "pro 5x never shows five-hour usage")
+        let missingToday = TokenActivity(
+            dailyBuckets: [DailyTokenUsage(startDate: "2026-09-03", tokens: 100)],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        var beijingCalendar = Calendar(identifier: .gregorian)
+        beijingCalendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let beijingNow = try requireDate("2026-09-04T04:00:00Z")
+        try require(
+            missingToday.tokensForToday(
+                now: beijingNow,
+                calendar: beijingCalendar
+            ) == nil,
+            "a missing current-day server bucket is not reported as zero usage"
+        )
+        try require(
+            missingToday.tokensIfCovered(
+                inLastDays: 1,
+                now: beijingNow,
+                calendar: beijingCalendar
+            ) == nil,
+            "an uncovered server period remains unknown"
+        )
         let beijingDate = try requireDate("2026-09-04T16:26:00Z")
         try require(
             BeijingDateTimeFormatter.string(from: beijingDate) == "9月5日 00:26",

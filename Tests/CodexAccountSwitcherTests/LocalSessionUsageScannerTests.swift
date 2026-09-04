@@ -12,6 +12,7 @@ struct LocalSessionUsageScannerTests {
         let sessions = root.appending(path: "sessions/2026/09/04", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
         let lines = [
+            #"{"timestamp":"2026-09-04T00:59:00.000Z","type":"response_item","payload":{"type":"message","content":"large unrelated record"}}"#,
             #"{"timestamp":"2026-09-04T01:00:00.000Z","type":"turn_context","payload":{"model":"gpt-5.6-sol"}}"#,
             #"{"timestamp":"2026-09-04T01:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100}}}}"#,
             #"{"timestamp":"2026-09-04T01:01:01.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100}}}}"#,

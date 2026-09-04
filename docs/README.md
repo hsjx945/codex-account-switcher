@@ -18,6 +18,7 @@ This directory defines the MVP for Codex Account Switcher.
 | [Milestone 3 report](testing/2026-09-04-milestone-3-report.md) | Reset reminder, safe action, package, and runtime evidence |
 | [Milestone 4 report](testing/2026-09-04-milestone-4-report.md) | Plan badges, Beijing time, aligned bars, and window-visibility evidence |
 | [Milestone 5 report](testing/2026-09-04-milestone-5-report.md) | Roomier account cards, neutral active state, and Pro label evidence |
+| [Milestone 6 report](testing/2026-09-04-milestone-6-report.md) | Larger icon-led cards, active-state alignment, and truthful current-day token evidence |
 | [Token, warmup, and Claude research](research/2026-09-04-usage-warmup-claude.md) | Pinned sources, data semantics, and provider recommendation |
 | [Reset notifications and safe switching research](research/2026-09-04-five-hour-reset-notifications.md) | Native notification, dedupe, task-state, and Claude-provider findings |
 

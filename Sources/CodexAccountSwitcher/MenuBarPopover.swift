@@ -44,7 +44,7 @@ struct MenuBarPopover: View {
                 }
             }
         }
-        .frame(width: 400)
+        .frame(width: 420)
         .onAppear {
             page = .accounts
         }
@@ -88,6 +88,9 @@ struct MenuBarPopover: View {
                                 showsFiveHourUsage: model.settings.showsFiveHourUsage,
                                 nameStyle: model.settings.accountNameStyle,
                                 tokenActivity: model.tokenActivities[account.id],
+                                localModelUsage: account.id == model.activeAccountID
+                                    ? model.localModelUsage
+                                    : nil,
                                 showsTokenActivity: model.settings.showsTokenActivity,
                                 warmupStatus: model.warmupStatuses[account.id]
                             )
@@ -96,16 +99,9 @@ struct MenuBarPopover: View {
                         .disabled(model.isMutating)
                     }
                 }
-                .padding(10)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 12)
 
-                if model.settings.showsTokenActivity,
-                   let summary = model.localModelUsage,
-                   !summary.models.isEmpty {
-                    LocalModelUsageView(
-                        summary: summary,
-                        language: model.settings.language
-                    )
-                }
             }
 
             Divider()
@@ -137,41 +133,6 @@ struct MenuBarPopover: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
         }
-    }
-}
-
-private struct LocalModelUsageView: View {
-    let summary: LocalModelUsageSummary
-    let language: AppLanguage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(L10n.string("local_models_title", language: language))
-                .font(.system(size: 9.5, weight: .medium))
-                .foregroundStyle(.secondary)
-            ForEach(summary.models.prefix(3)) { usage in
-                HStack(spacing: 6) {
-                    Text(usage.model)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    Text("\(L10n.string("today", language: language)) \(format(usage.todayTokens))")
-                    Text("7d \(format(usage.sevenDayTokens))")
-                    Text("30d \(format(usage.thirtyDayTokens))")
-                }
-                .font(.system(size: 9).monospacedDigit())
-                .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 7)
-        .help(L10n.string("local_models_hint", language: language))
-    }
-
-    private func format(_ tokens: Int) -> String {
-        if tokens >= 1_000_000 { return String(format: "%.1fM", Double(tokens) / 1_000_000) }
-        if tokens >= 1_000 { return String(format: "%.1fK", Double(tokens) / 1_000) }
-        return String(tokens)
     }
 }
 
