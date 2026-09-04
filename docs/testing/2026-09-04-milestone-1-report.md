@@ -6,8 +6,8 @@ Date: 2026-09-04
 
 | Check | Result |
 | --- | --- |
-| `swift test` | Passed; includes success, rollback, interrupted activation, committed reopen retry, encrypted backup permissions, and non-reentrant operation-gate coverage |
-| `./scripts/run-core-checks.sh` | Passed |
+| `swift test` | Test bundle compiled and linked; local execution unavailable because this machine has Command Line Tools but no `xctest` runner |
+| `./scripts/run-core-checks.sh` | Executed and passed, including encrypted backup, interrupted recovery, exact credential restoration, Desktop-state restoration, and non-reentrant operation-gate assertions |
 | `git diff --check` | Passed before closeout |
 | Task diff secret-pattern scan | Passed; no access token, refresh token, bearer token, or API-key pattern found |
 | `swift build -c release` | Passed |
@@ -15,7 +15,7 @@ Date: 2026-09-04
 | `hdiutil verify <dmg>` | Passed |
 | `shasum -a 256 -c <sidecar>` | Passed |
 
-Automated tests used temporary directories, fake account IDs, fake credentials, and a fixed test-only encryption key. They did not point `AccountStore` at the user's real `~/.codex`.
+The executable core checks used temporary directories, fake account IDs, fake credentials, and a fixed test-only encryption key. They did not point `AccountStore` at the user's real `~/.codex`. The Swift `@Test` suite also compiles, but must still be executed on a full-Xcode machine or GitHub macOS runner.
 
 ## Runtime smoke test
 
@@ -43,6 +43,7 @@ The menu popover could not be captured through the available accessibility surfa
 ## Not verified
 
 - live A-to-B and B-to-A switching with two real accounts;
+- execution of the Swift `@Test` bundle on this Command Line Tools-only machine;
 - a real production Keychain rollback entry created during a live switch;
 - visual popover interaction through accessibility automation;
 - Apple Developer ID signing, notarization, stapling, public release, or push CI.

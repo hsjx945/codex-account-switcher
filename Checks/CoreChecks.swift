@@ -105,6 +105,93 @@ private struct CoreRollbackKeyProvider: RollbackKeyProviding {
     }
 }
 
+private actor CoreRecoveryDesktop: DesktopControlling {
+    private var opens = 0
+    func isDesktopRunning() -> Bool { true }
+    func closeDesktop() async throws {}
+    func reopenDesktop() async throws { opens += 1 }
+    func reopenCount() -> Int { opens }
+}
+
+private actor CoreRecoveryStore: AccountStoring {
+    let original: AccountProfile
+    let target: AccountProfile
+    let originalBytes: Data
+    let targetBytes: Data
+    private var activeID: UUID
+    private var credentialBytes: Data
+    private var credentialID: UUID
+
+    init(original: AccountProfile, target: AccountProfile) {
+        self.original = original
+        self.target = target
+        originalBytes = Data("core-original-credential".utf8)
+        targetBytes = Data("core-target-credential".utf8)
+        activeID = original.id
+        credentialBytes = originalBytes
+        credentialID = original.id
+    }
+
+    func loadRegistry() -> AccountRegistry {
+        AccountRegistry(activeAccountID: activeID, accounts: [original, target])
+    }
+    func profile(id: UUID) throws -> AccountProfile {
+        guard id == original.id || id == target.id else { throw AccountStoreError.profileNotFound }
+        return id == original.id ? original : target
+    }
+    func profileHome(id: UUID) -> URL { URL(fileURLWithPath: "/tmp/\(id.uuidString)") }
+    func activeCodexHome() -> URL { URL(fileURLWithPath: "/tmp/core-active") }
+    func activeCredentialExists() -> Bool { true }
+    func readActiveCredential() -> Data { credentialBytes }
+    func createProfileDirectory(id: UUID) -> URL { profileHome(id: id) }
+    func importCurrentProfile(_ profile: AccountProfile) {}
+    func addProfile(_ profile: AccountProfile) {}
+    func removeAccount(id: UUID) {}
+    func saveCurrentCredential() {}
+    func activateTargetCredential(id: UUID) {
+        credentialBytes = targetBytes
+        credentialID = target.id
+    }
+    func restoreActiveCredential(id: UUID) {
+        credentialBytes = originalBytes
+        credentialID = original.id
+    }
+    func restoreCredential(_ credential: Data) {
+        credentialBytes = credential
+        credentialID = original.id
+    }
+    func commitActiveAccountID(_ id: UUID) { activeID = id }
+    func simulateInterruptedActivation() {
+        credentialBytes = targetBytes
+        credentialID = target.id
+    }
+    func activeAccountID() -> UUID { activeID }
+    func activeCredential() -> Data { credentialBytes }
+    func credentialOwner() -> UUID { credentialID }
+}
+
+private struct CoreRecoveryCodex: CodexIdentityReading {
+    let store: CoreRecoveryStore
+    let original: AccountProfile
+    let target: AccountProfile
+    func readIdentity(profileHome: URL) async throws -> AccountIdentity {
+        let owner = await store.credentialOwner()
+        let profile = owner == original.id ? original : target
+        return AccountIdentity(accountID: profile.accountID, email: profile.email)
+    }
+}
+
+private actor CoreConcurrencyProbe {
+    private var active = 0
+    private var maximum = 0
+    func enter() {
+        active += 1
+        maximum = max(maximum, active)
+    }
+    func leave() { active -= 1 }
+    func maximumConcurrency() -> Int { maximum }
+}
+
 private func createExecutable(at url: URL, body: String) throws {
     try Data("#!/bin/sh\n\(body)\n".utf8).write(to: url)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
@@ -277,6 +364,114 @@ struct CoreChecks {
         try await switcher.switchAccount(to: second.id)
         let recordedStages = await recorder.snapshot()
         try require(recordedStages == SwitchStage.allCases, "switch stage order")
+
+        let encryptedRecoveryRoot = root.appending(
+            path: "encrypted-recovery-check",
+            directoryHint: .isDirectory
+        )
+        let encryptedRecovery = SwitchRecoveryStore(
+            baseURL: encryptedRecoveryRoot,
+            keyProvider: CoreRollbackKeyProvider()
+        )
+        let recoverySecret = Data("core-secret-must-remain-encrypted".utf8)
+        let encryptedJournal = try await encryptedRecovery.prepare(
+            originalCredential: recoverySecret,
+            originalAccountID: first.id,
+            targetAccountID: second.id,
+            desktopWasRunning: true
+        )
+        let encryptedBackupURL = encryptedRecoveryRoot.appending(
+            path: encryptedJournal.backupFileName
+        )
+        let encryptedBytes = try Data(contentsOf: encryptedBackupURL)
+        try require(
+            !String(decoding: encryptedBytes, as: UTF8.self).contains(
+                "core-secret-must-remain-encrypted"
+            ),
+            "rollback credential is encrypted"
+        )
+        let decryptedRecoverySecret = try await encryptedRecovery.loadOriginalCredential(
+            for: encryptedJournal
+        )
+        try require(decryptedRecoverySecret == recoverySecret, "encrypted rollback credential round trip")
+        let encryptedBackupPermissions = try permissions(encryptedBackupURL)
+        try require(encryptedBackupPermissions == 0o600, "encrypted backup permissions")
+        try await encryptedRecovery.clear(encryptedJournal)
+
+        let recoveryOriginal = AccountProfile(
+            id: UUID(), displayName: "Recovery Original", email: "recovery-original@example.com",
+            accountID: "recovery-original", createdAt: Date(), lastUsedAt: nil
+        )
+        let recoveryTarget = AccountProfile(
+            id: UUID(), displayName: "Recovery Target", email: "recovery-target@example.com",
+            accountID: "recovery-target", createdAt: Date(), lastUsedAt: nil
+        )
+        let interruptedStore = CoreRecoveryStore(
+            original: recoveryOriginal,
+            target: recoveryTarget
+        )
+        let interruptedDesktop = CoreRecoveryDesktop()
+        let interruptedRecovery = SwitchRecoveryStore(
+            baseURL: root.appending(path: "interrupted-recovery-check"),
+            keyProvider: CoreRollbackKeyProvider()
+        )
+        let recoveryOriginalBytes = interruptedStore.originalBytes
+        let interruptedJournal = try await interruptedRecovery.prepare(
+            originalCredential: recoveryOriginalBytes,
+            originalAccountID: recoveryOriginal.id,
+            targetAccountID: recoveryTarget.id,
+            desktopWasRunning: true
+        )
+        _ = try await interruptedRecovery.update(interruptedJournal, phase: .targetActivated)
+        await interruptedStore.simulateInterruptedActivation()
+        let interruptedCoordinator = SwitchCoordinator(
+            desktop: interruptedDesktop,
+            store: interruptedStore,
+            codex: CoreRecoveryCodex(
+                store: interruptedStore,
+                original: recoveryOriginal,
+                target: recoveryTarget
+            ),
+            recovery: interruptedRecovery,
+            operationGate: AccountOperationGate()
+        )
+        try await interruptedCoordinator.recoverIfNeeded()
+        let recoveredAccountID = await interruptedStore.activeAccountID()
+        let recoveredCredential = await interruptedStore.activeCredential()
+        let remainingJournal = try await interruptedRecovery.loadJournal()
+        let recoveryReopenCount = await interruptedDesktop.reopenCount()
+        try require(
+            recoveredAccountID == recoveryOriginal.id,
+            "startup recovery restores original registry"
+        )
+        try require(
+            recoveredCredential == recoveryOriginalBytes,
+            "startup recovery restores exact credential"
+        )
+        try require(
+            remainingJournal == nil,
+            "startup recovery clears journal after verification"
+        )
+        try require(
+            recoveryReopenCount == 1,
+            "startup recovery restores Desktop running state"
+        )
+
+        let operationGate = AccountOperationGate()
+        let concurrencyProbe = CoreConcurrencyProbe()
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    await operationGate.run {
+                        await concurrencyProbe.enter()
+                        try? await Task.sleep(for: .milliseconds(20))
+                        await concurrencyProbe.leave()
+                    }
+                }
+            }
+        }
+        let maximumConcurrency = await concurrencyProbe.maximumConcurrency()
+        try require(maximumConcurrency == 1, "account operation gate serializes across await")
 
         let fakeCodex = root.appending(path: "fake-codex")
         try createExecutable(at: fakeCodex, body: """
