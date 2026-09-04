@@ -14,11 +14,11 @@ struct AccountRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(account.primaryLabel(style: nameStyle))
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if let secondary = account.secondaryLabel(style: nameStyle) {
@@ -73,9 +73,9 @@ struct AccountRow: View {
                 warmupContent(warmupStatus)
             }
         }
-        .frame(minHeight: 72)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .frame(minHeight: 80)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
         .contentShape(Rectangle())
         .background(
             rowBackground,
@@ -84,7 +84,7 @@ struct AccountRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(
-                    isActive ? Color.accentColor.opacity(0.42) : Color.primary.opacity(0.06),
+                    isActive ? Color.accentColor.opacity(0.30) : Color.primary.opacity(0.06),
                     lineWidth: isActive ? 1 : 0.75
                 )
         }
@@ -94,10 +94,10 @@ struct AccountRow: View {
     }
 
     private func tokenContent(_ activity: TokenActivity) -> some View {
-        HStack(spacing: 16) {
-            tokenMetric("sun.max", "today", activity.tokensForToday())
-            tokenMetric("calendar", "last_7_days", activity.tokensIfCovered(inLastDays: 7))
-            tokenMetric("calendar.badge.clock", "last_30_days", activity.tokensIfCovered(inLastDays: 30))
+        HStack(spacing: 20) {
+            tokenMetric("today", activity.tokensForToday())
+            tokenMetric("last_7_days", activity.tokensIfCovered(inLastDays: 7))
+            tokenMetric("last_30_days", activity.tokensIfCovered(inLastDays: 30))
         }
     }
 
@@ -108,31 +108,26 @@ struct AccountRow: View {
         let today = summary.models.reduce(0) { $0 + $1.todayTokens }
         let seven = serverActivity?.tokensIfCovered(inLastDays: 7)
         let thirty = serverActivity?.tokensIfCovered(inLastDays: 30)
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 16) {
-                tokenMetric("sun.max.fill", "today", today)
-                tokenMetric("calendar", "last_7_days", seven)
-                tokenMetric("calendar.badge.clock", "last_30_days", thirty)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 20) {
+                tokenMetric("today", today)
+                tokenMetric("last_7_days", seven)
+                tokenMetric("last_30_days", thirty)
             }
             if !summary.models.isEmpty {
-                Label(
-                    summary.models.prefix(3).map { "\($0.model) \(formatTokens($0.todayTokens))" }.joined(separator: " · "),
-                    systemImage: "cpu"
-                )
+                Text(summary.models.prefix(3).map { "\($0.model) \(formatTokens($0.todayTokens))" }.joined(separator: " · "))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .help(L10n.string("local_models_hint", language: language))
     }
 
-    private func tokenMetric(_ systemImage: String, _ key: String, _ tokens: Int?) -> some View {
-        Label(
-            "\(L10n.string(key, language: language)) \(tokens.map(formatTokens) ?? "—")",
-            systemImage: systemImage
-        )
+    private func tokenMetric(_ key: String, _ tokens: Int?) -> some View {
+        Text("\(L10n.string(key, language: language)) \(tokens.map(formatTokens) ?? "—")")
             .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -186,30 +181,20 @@ struct AccountRow: View {
     }
 
     private func compactWeeklyUsageContent(_ usage: WeeklyUsage) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "calendar")
-                .font(.system(size: 12, weight: .semibold))
+        HStack(spacing: 12) {
+            Text(L10n.string("weekly", language: language))
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 24)
-                .accessibilityLabel(L10n.string("weekly", language: language))
-
-            if let message = usageState.refreshError {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.orange)
-                    .help(message)
-                    .accessibilityLabel(message)
-            }
+                .frame(width: 52, alignment: .leading)
 
             UsageBar(remainingPercent: usage.remainingPercent)
                 .accessibilityLabel(L10n.string("usage", language: language))
                 .accessibilityValue("\(usage.remainingPercent)\(L10n.string("left", language: language))")
 
-            Text("\(usage.remainingPercent)\(L10n.string("left", language: language))")
+            Text("\(usage.remainingPercent)%")
                 .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 42, alignment: .trailing)
-                .fixedSize(horizontal: true, vertical: false)
 
             Text(resetText(for: usage))
                 .font(.system(size: 11.5).monospacedDigit())
@@ -220,19 +205,17 @@ struct AccountRow: View {
     }
 
     private func expandedUsageContent(_ usage: WeeklyUsage) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             if let remaining = usage.fiveHourRemainingPercent,
                let resetsAt = usage.fiveHourResetsAt {
                 limitRow(
-                    systemImage: "clock",
-                    accessibilityTitle: L10n.string("five_hour", language: language),
+                    title: L10n.string("five_hour", language: language),
                     remainingPercent: remaining,
                     resetsAt: resetsAt
                 )
             }
             limitRow(
-                systemImage: "calendar",
-                accessibilityTitle: L10n.string("weekly", language: language),
+                title: L10n.string("weekly", language: language),
                 remainingPercent: usage.remainingPercent,
                 resetsAt: usage.resetsAt
             )
@@ -240,26 +223,25 @@ struct AccountRow: View {
     }
 
     private func limitRow(
-        systemImage: String,
-        accessibilityTitle: String,
+        title: String,
         remainingPercent: Int,
         resetsAt: Date
     ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .semibold))
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 24)
-                .accessibilityLabel(accessibilityTitle)
+                .frame(width: 52, alignment: .leading)
+                .lineLimit(1)
 
             UsageBar(remainingPercent: remainingPercent)
-                .accessibilityLabel(accessibilityTitle)
+                .accessibilityLabel(title)
                 .accessibilityValue("\(remainingPercent)\(L10n.string("left", language: language))")
 
             Text("\(remainingPercent)%")
                 .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 38, alignment: .trailing)
+                .frame(width: 42, alignment: .trailing)
 
             Text(resetText(for: resetsAt))
                 .font(.system(size: 11.5).monospacedDigit())
@@ -271,7 +253,7 @@ struct AccountRow: View {
 
     private var rowBackground: Color {
         if isActive {
-            return Color.accentColor.opacity(0.15)
+            return Color.accentColor.opacity(0.10)
         }
         return Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.70 : 0.38)
     }
@@ -303,7 +285,7 @@ private struct UsageBar: View {
                     .frame(width: geometry.size.width * fraction)
             }
         }
-        .frame(width: 120, height: 5)
+        .frame(width: 140, height: 5)
     }
 
     private var fraction: CGFloat {

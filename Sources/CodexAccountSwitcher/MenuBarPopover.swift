@@ -44,7 +44,7 @@ struct MenuBarPopover: View {
                 }
             }
         }
-        .frame(width: 420)
+        .frame(width: 500)
         .onAppear {
             page = .accounts
         }
@@ -71,7 +71,7 @@ struct MenuBarPopover: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 28)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     ForEach(model.displayedAccounts) { account in
                         Button {
                             if account.id == model.activeAccountID {
@@ -99,8 +99,8 @@ struct MenuBarPopover: View {
                         .disabled(model.isMutating)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
 
             }
 
@@ -130,8 +130,8 @@ struct MenuBarPopover: View {
                     NSApp.terminate(nil)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
     }
 }
@@ -249,7 +249,7 @@ private struct FooterAction: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.80)
                 .padding(.horizontal, 5)
-                .frame(maxWidth: .infinity, minHeight: 30)
+                .frame(maxWidth: .infinity, minHeight: 34)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

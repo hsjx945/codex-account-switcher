@@ -17,8 +17,8 @@ enum L10n {
     private static let tables: [AppLanguage: [String: String]] = [
         .english: [
             "usage": "Usage",
-            "five_hour": "5h",
-            "weekly": "7d",
+            "five_hour": "5-hour",
+            "weekly": "Weekly",
             "usage_unavailable": "Usage unavailable",
             "left": "% left",
             "resets": "Resets",
@@ -95,7 +95,7 @@ enum L10n {
         .simplifiedChinese: [
             "usage": "用量",
             "five_hour": "5 小时",
-            "weekly": "7 天",
+            "weekly": "周额度",
             "usage_unavailable": "用量暂不可用",
             "left": "% 剩余",
             "resets": "重置于",

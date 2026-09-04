@@ -49,4 +49,11 @@ struct PlanAndDateFormattingTests {
 
         #expect(BeijingDateTimeFormatter.string(from: date) == "9月5日 00:26")
     }
+
+    @Test func quotaRowsUseExplicitTextLabels() {
+        #expect(L10n.string("five_hour", language: .english) == "5-hour")
+        #expect(L10n.string("weekly", language: .english) == "Weekly")
+        #expect(L10n.string("five_hour", language: .simplifiedChinese) == "5 小时")
+        #expect(L10n.string("weekly", language: .simplifiedChinese) == "周额度")
+    }
 }
