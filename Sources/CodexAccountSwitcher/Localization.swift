@@ -18,6 +18,7 @@ enum L10n {
         .english: [
             "usage": "Usage",
             "five_hour": "5-hour",
+            "reset_unknown": "Reset unknown",
             "weekly": "Weekly",
             "usage_unavailable": "Usage unavailable",
             "left": "% left",
@@ -117,6 +118,7 @@ enum L10n {
         .simplifiedChinese: [
             "usage": "用量",
             "five_hour": "5 小时",
+            "reset_unknown": "重置时间未知",
             "weekly": "周额度",
             "usage_unavailable": "用量暂不可用",
             "left": "% 剩余",

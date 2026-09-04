@@ -29,10 +29,17 @@ jobs:
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        run: git diff --check "$BASE_SHA...$HEAD_SHA"
+        run: |
+          set -euo pipefail
+          if [[ "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+            empty_tree=$(git hash-object -t tree /dev/null)
+            git diff --check "$empty_tree" "$HEAD_SHA"
+          else
+            git diff --check "$BASE_SHA...$HEAD_SHA"
+          fi
 
       - name: Run Swift tests
-        run: swift test
+        run: ./scripts/run-swift-tests.sh
 
       - name: Run core checks
         run: ./scripts/run-core-checks.sh

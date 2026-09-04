@@ -106,6 +106,19 @@ private struct ReopenFailureSwitchService: SwitchServicing {
     func recoverIfNeeded() async throws {}
 }
 
+private struct RecoveryWarningSwitchService: SwitchServicing {
+    func switchAccount(to targetID: UUID) async throws {}
+    func recoverIfNeeded() async throws {
+        throw OperationError(
+            stage: nil,
+            titleKey: "operation_failed",
+            messageKey: nil,
+            message: "Recovery cleanup pending",
+            underlyingDescription: "injected cleanup failure"
+        )
+    }
+}
+
 private struct CoreRollbackKeyProvider: RollbackKeyProviding {
     func loadOrCreateKey() throws -> SymmetricKey {
         SymmetricKey(data: Data(repeating: 0x42, count: 32))
@@ -185,6 +198,19 @@ private struct CoreRecoveryCodex: CodexIdentityReading {
         let owner = await store.credentialOwner()
         let profile = owner == original.id ? original : target
         return AccountIdentity(accountID: profile.accountID, email: profile.email)
+    }
+}
+
+private struct CoreUnavailableRecoveryCodex: CodexIdentityReading {
+    func readIdentity(profileHome: URL) async throws -> AccountIdentity {
+        throw CodexClientError.timeout
+    }
+}
+
+private struct CoreBlockingLoginService: LoginServicing {
+    func login(profileHome: URL) async throws -> AccountIdentity {
+        try await Task.sleep(for: .seconds(60))
+        throw CodexClientError.timeout
     }
 }
 
@@ -323,10 +349,65 @@ struct CoreChecks {
             noFiveHourWindow.fiveHourRemainingPercent == nil && noFiveHourWindow.fiveHourResetsAt == nil,
             "missing exact 300-minute window leaves five-hour usage absent"
         )
+        let unknownResetUsage = try WeeklyUsageNormalizer.normalize([
+            RateLimitWindow(usedPercent: 25, windowDurationMins: 300, resetsAt: nil),
+            RateLimitWindow(usedPercent: 40, windowDurationMins: 10_080, resetsAt: nil),
+        ])
+        try require(
+            unknownResetUsage.remainingPercent == 60
+                && unknownResetUsage.resetsAt == nil
+                && unknownResetUsage.fiveHourRemainingPercent == 75
+                && unknownResetUsage.fiveHourResetsAt == nil,
+            "usage remains available when reset timestamps are absent"
+        )
+        try require(
+            !unknownResetUsage.allowsWarmup(at: Date()),
+            "unknown five-hour reset never permits an automatic warmup"
+        )
+
+        let sparseFirst = TokenActivity(
+            dailyBuckets: [
+                DailyTokenUsage(startDate: "2026-09-03", tokens: 10),
+                DailyTokenUsage(startDate: "2026-09-05", tokens: 20),
+            ],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        let sparseSecond = TokenActivity(
+            dailyBuckets: [
+                DailyTokenUsage(startDate: "2026-09-03", tokens: 30),
+                DailyTokenUsage(startDate: "2026-09-04", tokens: 40),
+            ],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        try require(
+            TokenActivity.latestCommonDateKey(in: [sparseFirst, sparseSecond]) == "2026-09-03",
+            "token reporting date uses the latest real intersection"
+        )
 
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appending(path: "switcher-check-\(UUID().uuidString)")
         defer { try? fileManager.removeItem(at: root) }
+
+        let firstAddSupport = root.appending(path: "first-add-support")
+        let firstAddActive = root.appending(path: "first-add-active")
+        let firstAddStore = AccountStore(baseURL: firstAddSupport, activeHomeURL: firstAddActive)
+        let firstAddedProfile = AccountProfile(
+            id: UUID(), displayName: "First Added", email: "first-added@example.com",
+            accountID: "first-added", createdAt: Date(), lastUsedAt: nil
+        )
+        let firstAddedHome = try await firstAddStore.createProfileDirectory(id: firstAddedProfile.id)
+        let firstAddedBytes = Data("first-added-credential".utf8)
+        try firstAddedBytes.write(to: firstAddedHome.appending(path: "auth.json"))
+        try await firstAddStore.addProfile(firstAddedProfile)
+        let firstAddedRegistry = try await firstAddStore.loadRegistry()
+        let firstAddedActiveBytes = try Data(contentsOf: firstAddActive.appending(path: "auth.json"))
+        try require(firstAddedRegistry.activeAccountID == firstAddedProfile.id, "first browser-added profile becomes active")
+        try require(
+            firstAddedActiveBytes == firstAddedBytes,
+            "first browser-added credential is installed in active CODEX_HOME"
+        )
 
         let scanHome = root.appending(path: "model-scan", directoryHint: .isDirectory)
         let scanSessions = scanHome.appending(path: "sessions", directoryHint: .isDirectory)
@@ -394,6 +475,37 @@ struct CoreChecks {
         let thirdHome = try await store.createProfileDirectory(id: third.id)
         try Data("third".utf8).write(to: thirdHome.appending(path: "auth.json"))
         try await store.addProfile(third)
+        let removable = AccountProfile(
+            id: UUID(), displayName: "Removable", email: "removable@example.com",
+            accountID: "removable", createdAt: Date(), lastUsedAt: nil
+        )
+        let removableHome = try await store.createProfileDirectory(id: removable.id)
+        let removableAuth = removableHome.appending(path: "auth.json")
+        try Data("removable".utf8).write(to: removableAuth)
+        try await store.addProfile(removable)
+        guard Darwin.chflags(removableAuth.path, UInt32(UF_IMMUTABLE)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var removalFailed = false
+        do {
+            try await store.removeAccount(id: removable.id)
+        } catch {
+            removalFailed = true
+        }
+        guard Darwin.chflags(removableAuth.path, 0) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        try require(removalFailed, "immutable profile rejects removal")
+        let registryAfterFailedRemoval = try await store.loadRegistry()
+        try require(
+            registryAfterFailedRemoval.accounts.contains(where: { $0.id == removable.id }),
+            "failed account deletion restores registry membership"
+        )
+        try require(
+            fileManager.fileExists(atPath: removableAuth.path),
+            "failed account deletion preserves the saved credential"
+        )
+        try await store.removeAccount(id: removable.id)
         try await store.activateTargetCredential(id: second.id)
         let activeCredential = activeHome.appending(path: "auth.json")
         let activeBytes = try Data(contentsOf: activeCredential)
@@ -651,6 +763,45 @@ struct CoreChecks {
             "startup recovery restores Desktop running state"
         )
 
+        let committedStore = CoreRecoveryStore(original: recoveryOriginal, target: recoveryTarget)
+        await committedStore.simulateInterruptedActivation()
+        await committedStore.commitActiveAccountID(recoveryTarget.id)
+        let committedRecovery = SwitchRecoveryStore(
+            baseURL: root.appending(path: "committed-recovery-check"),
+            keyProvider: CoreRollbackKeyProvider()
+        )
+        let committedPrepared = try await committedRecovery.prepare(
+            originalCredential: committedStore.originalBytes,
+            originalAccountID: recoveryOriginal.id,
+            targetAccountID: recoveryTarget.id,
+            desktopWasRunning: true
+        )
+        _ = try await committedRecovery.update(committedPrepared, phase: .committed)
+        let committedCoordinator = SwitchCoordinator(
+            desktop: CoreRecoveryDesktop(),
+            store: committedStore,
+            codex: CoreUnavailableRecoveryCodex(),
+            recovery: committedRecovery,
+            operationGate: AccountOperationGate()
+        )
+        do {
+            try await committedCoordinator.recoverIfNeeded()
+            throw CheckFailure.failed("committed recovery should surface transient identity failure")
+        } catch let error as OperationError {
+            try require(error.stage == .verifyTargetIdentity, "committed recovery reports verification failure")
+        }
+        let committedActiveID = await committedStore.activeAccountID()
+        let committedCredential = await committedStore.activeCredential()
+        try require(
+            committedActiveID == recoveryTarget.id && committedCredential == committedStore.targetBytes,
+            "committed recovery never rolls back a verified target on transient failure"
+        )
+        let retainedCommittedJournal = try await committedRecovery.loadJournal()
+        try require(
+            retainedCommittedJournal?.phase == .committed,
+            "committed recovery retains its journal for retry"
+        )
+
         let operationGate = AccountOperationGate()
         let concurrencyProbe = CoreConcurrencyProbe()
         await withTaskGroup(of: Void.self) { group in
@@ -817,7 +968,6 @@ struct CoreChecks {
             codex: client,
             switchService: ReopenFailureSwitchService(store: store),
             operationGate: AccountOperationGate(),
-            localSessionScanner: LocalSessionUsageScanner(codexHome: root),
             notificationService: notificationService
         )
         await withTaskGroup(of: Void.self) { group in
@@ -903,8 +1053,7 @@ struct CoreChecks {
             store: store,
             codex: countingClient,
             switchService: ReopenFailureSwitchService(store: store),
-            operationGate: AccountOperationGate(),
-            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
+            operationGate: AccountOperationGate()
         )
         await countingModel.start()
         try require(countingModel.accounts.count == 3, "counting model loaded all profiles")
@@ -956,8 +1105,7 @@ struct CoreChecks {
             store: store,
             codex: scheduledClient,
             switchService: ReopenFailureSwitchService(store: store),
-            operationGate: AccountOperationGate(),
-            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
+            operationGate: AccountOperationGate()
         )
         await scheduledModel.startBackgroundUsageRefresh(every: .seconds(3))
         try await waitForLineCount(at: scheduledRequestCountURL, atLeast: 2)
@@ -1047,8 +1195,7 @@ struct CoreChecks {
             store: store,
             codex: failingClient,
             switchService: ReopenFailureSwitchService(store: store),
-            operationGate: AccountOperationGate(),
-            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
+            operationGate: AccountOperationGate()
         )
         await failureModel.start()
         failureModel.refreshWeeklyUsage()
@@ -1060,6 +1207,41 @@ struct CoreChecks {
         try require(
             failureModel.usageStates[first.id]?.refreshError != nil,
             "failed refresh exposes stale-cache warning"
+        )
+
+        let addingModel = AppModel(
+            store: store,
+            codex: client,
+            switchService: ReopenFailureSwitchService(store: store),
+            operationGate: AccountOperationGate(),
+            loginService: CoreBlockingLoginService()
+        )
+        await addingModel.start()
+        addingModel.addAccount()
+        await Task.yield()
+        try require(addingModel.isAddingAccount, "add-account precondition is active")
+        await addingModel.handleNotificationSwitchRequest(profileID: second.id)
+        try require(
+            addingModel.visibleError?.message == addingModel.text("switch_in_progress"),
+            "notification switch fails fast while OAuth login owns the operation gate"
+        )
+        addingModel.cancelAddingAccount()
+        try? await Task.sleep(for: .milliseconds(20))
+
+        let recoveryWarningModel = AppModel(
+            store: store,
+            codex: client,
+            switchService: RecoveryWarningSwitchService(),
+            operationGate: AccountOperationGate()
+        )
+        await recoveryWarningModel.start()
+        try require(
+            !recoveryWarningModel.accounts.isEmpty,
+            "committed recovery warning does not abort registry loading"
+        )
+        try require(
+            recoveryWarningModel.visibleError?.message == "Recovery cleanup pending",
+            "committed recovery warning remains visible after startup"
         )
 
         let stalledCodex = root.appending(path: "stalled-codex")

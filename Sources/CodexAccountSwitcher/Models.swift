@@ -236,6 +236,17 @@ struct TokenActivity: Codable, Equatable, Sendable {
         dailyBuckets.map(\.startDate).max()
     }
 
+    static func latestCommonDateKey(in activities: [TokenActivity]) -> String? {
+        guard !activities.isEmpty else { return nil }
+        var commonDates = Set(activities[0].dailyBuckets.map(\.startDate))
+        guard !commonDates.isEmpty else { return nil }
+        for activity in activities.dropFirst() {
+            commonDates.formIntersection(activity.dailyBuckets.map(\.startDate))
+            if commonDates.isEmpty { return nil }
+        }
+        return commonDates.max()
+    }
+
     func tokens(on dateKey: String) -> Int? {
         let matches = dailyBuckets.filter { $0.startDate == dateKey }
         guard !matches.isEmpty else { return nil }
@@ -245,13 +256,13 @@ struct TokenActivity: Codable, Equatable, Sendable {
 
 struct WeeklyUsage: Codable, Equatable, Sendable {
     let remainingPercent: Int
-    let resetsAt: Date
+    let resetsAt: Date?
     let fiveHourRemainingPercent: Int?
     let fiveHourResetsAt: Date?
 
     init(
         remainingPercent: Int,
-        resetsAt: Date,
+        resetsAt: Date?,
         fiveHourRemainingPercent: Int? = nil,
         fiveHourResetsAt: Date? = nil
     ) {
@@ -259,6 +270,12 @@ struct WeeklyUsage: Codable, Equatable, Sendable {
         self.resetsAt = resetsAt
         self.fiveHourRemainingPercent = fiveHourRemainingPercent
         self.fiveHourResetsAt = fiveHourResetsAt
+    }
+
+    func allowsWarmup(at now: Date) -> Bool {
+        guard fiveHourRemainingPercent != nil else { return true }
+        guard let fiveHourResetsAt else { return false }
+        return fiveHourResetsAt <= now
     }
 }
 
@@ -303,10 +320,11 @@ enum NotificationSwitchPolicy {
         targetID: UUID,
         activeID: UUID?,
         isMutating: Bool,
+        isAddingAccount: Bool = false,
         taskState: DesktopTaskState
     ) -> NotificationSwitchDisposition {
         guard targetID != activeID else { return .noAction }
-        guard !isMutating else { return .operationInProgress }
+        guard !isMutating, !isAddingAccount else { return .operationInProgress }
         switch taskState {
         case .idle:
             return .direct

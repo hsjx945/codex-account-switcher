@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 
 const root = process.cwd();
 const siteRoot = path.join(root, "site");
@@ -39,6 +40,35 @@ function localTargetForHref(file, href) {
   if (!clean || /^(?:https?:|mailto:|tel:|javascript:)/i.test(clean)) return null;
   const resolved = path.resolve(path.dirname(file), clean);
   return clean.endsWith("/") ? path.join(resolved, "index.html") : resolved;
+}
+
+function simulatedLanguageRedirect({ current, documentLanguage, alternates }) {
+  let replacement = null;
+  const location = new URL(current);
+  location.replace = (target) => {
+    replacement = String(target);
+  };
+  const rootElement = { lang: documentLanguage, dataset: {} };
+  const context = {
+    URL,
+    URLSearchParams,
+    document: {
+      documentElement: rootElement,
+      querySelector(selector) {
+        if (selector === "[data-theme-toggle]") return null;
+        const language = selector.match(/hreflang="([^"]+)"/)?.[1];
+        if (language && alternates[language]) return { href: alternates[language] };
+        return null;
+      },
+    },
+    localStorage: { getItem: () => null },
+    window: {
+      location,
+      matchMedia: () => ({ matches: false, addEventListener() {} }),
+    },
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(siteRoot, "app.js"), "utf8"), context);
+  return replacement;
 }
 
 for (const required of ["llms.txt", "sitemap.xml", "robots.txt"]) {
@@ -110,6 +140,33 @@ for (const url of sitemapURLs) {
 const llms = fs.readFileSync(path.join(siteRoot, "llms.txt"), "utf8");
 if (!llms.startsWith("# Codex Account Switcher\n")) fail("site/llms.txt: must start with the canonical project H1");
 if (!llms.includes("> Codex Account Switcher is")) fail("site/llms.txt: missing concise project summary");
+
+const redirectCases = [
+  {
+    current: "http://localhost:8000/guides/codex-account/?lang=zh",
+    documentLanguage: "en",
+    alternates: {
+      en: `${baseURL}guides/codex-account/`,
+      "zh-CN": `${baseURL}zh-CN/guides/codex-account/`,
+    },
+    expected: "http://localhost:8000/zh-CN/guides/codex-account/",
+  },
+  {
+    current: "http://localhost:8000/zh-CN/guides/codex-multiple-accounts/?lang=en",
+    documentLanguage: "zh-CN",
+    alternates: {
+      en: `${baseURL}guides/switch-multiple-codex-accounts/`,
+      "zh-CN": `${baseURL}zh-CN/guides/codex-multiple-accounts/`,
+    },
+    expected: "http://localhost:8000/guides/switch-multiple-codex-accounts/",
+  },
+];
+for (const testCase of redirectCases) {
+  const actual = simulatedLanguageRedirect(testCase);
+  if (actual !== testCase.expected) {
+    fail(`site/app.js: language redirect expected ${testCase.expected}, got ${actual}`);
+  }
+}
 
 if (errors.length) {
   console.error(errors.join("\n"));

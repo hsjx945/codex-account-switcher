@@ -3,7 +3,7 @@ import Foundation
 struct RateLimitWindow: Codable, Equatable, Sendable {
     let usedPercent: Double
     let windowDurationMins: Int
-    let resetsAt: TimeInterval
+    let resetsAt: TimeInterval?
 }
 
 enum WeeklyUsageNormalizer {
@@ -23,9 +23,9 @@ enum WeeklyUsageNormalizer {
 
         return WeeklyUsage(
             remainingPercent: remainingPercent(for: weekly),
-            resetsAt: Date(timeIntervalSince1970: weekly.resetsAt),
+            resetsAt: weekly.resetsAt.map(Date.init(timeIntervalSince1970:)),
             fiveHourRemainingPercent: fiveHour.map { remainingPercent(for: $0) },
-            fiveHourResetsAt: fiveHour.map { Date(timeIntervalSince1970: $0.resetsAt) }
+            fiveHourResetsAt: fiveHour?.resetsAt.map(Date.init(timeIntervalSince1970:))
         )
     }
 

@@ -202,17 +202,43 @@ actor SwitchCoordinator: SwitchServicing {
             try await rollback(journal)
             return
         }
-        let target = try await store.profile(id: journal.targetAccountID)
+        let target: AccountProfile
+        do {
+            target = try await store.profile(id: journal.targetAccountID)
+        } catch {
+            // A committed target is already the source of truth. A transient
+            // registry read must not turn startup recovery into a rollback.
+            throw OperationError.stage(.verifyTargetIdentity, error)
+        }
         do {
             let identity = try await codex.readIdentity(profileHome: await store.activeCodexHome())
             guard identity.matches(target) else {
                 throw CodexClientError.identityUnavailable
             }
         } catch {
-            try await rollback(journal)
-            return
+            // Keep the committed target and journal until a later startup can
+            // verify it. Rolling back here could replace a valid target with
+            // an older credential solely because account/read was unavailable.
+            throw OperationError.stage(.verifyTargetIdentity, error)
         }
-        if journal.desktopWasRunning { try await desktop.reopenDesktop() }
-        try await recovery.clear(journal)
+        do {
+            if journal.desktopWasRunning { try await desktop.reopenDesktop() }
+        } catch {
+            throw OperationError.stage(.reopenDesktop, error)
+        }
+        do {
+            try await recovery.clear(journal)
+        } catch {
+            // Cleanup is deliberately retried on the next startup; preserving
+            // the journal is safer than claiming recovery completed. This is
+            // not a Desktop reopen failure and must not be reported as one.
+            throw OperationError(
+                stage: nil,
+                titleKey: "operation_failed",
+                messageKey: nil,
+                message: "The committed account is active, but switch recovery cleanup will be retried.",
+                underlyingDescription: String(describing: error)
+            )
+        }
     }
 }

@@ -101,12 +101,11 @@ struct AccountRow: View {
         case let .loaded(usage), let .stale(usage, _):
             VStack(spacing: 9) {
                 if shouldShowFiveHourUsage,
-                   let remaining = usage.fiveHourRemainingPercent,
-                   let resetsAt = usage.fiveHourResetsAt {
+                   let remaining = usage.fiveHourRemainingPercent {
                     limitRow(
                         title: L10n.string("five_hour", language: language),
                         remainingPercent: remaining,
-                        resetsAt: resetsAt
+                        resetsAt: usage.fiveHourResetsAt
                     )
                 }
 
@@ -122,7 +121,7 @@ struct AccountRow: View {
     private func limitRow(
         title: String,
         remainingPercent: Int,
-        resetsAt: Date
+        resetsAt: Date?
     ) -> some View {
         HStack(spacing: 8) {
             Text(title)
@@ -140,7 +139,7 @@ struct AccountRow: View {
                 .font(.system(size: 14, weight: .bold).monospacedDigit())
                 .frame(width: 42, alignment: .trailing)
 
-            Text(resetText(for: resetsAt))
+            Text(resetsAt.map(resetText(for:)) ?? L10n.string("reset_unknown", language: language))
                 .font(.system(size: 10.5).monospacedDigit())
                 .foregroundStyle(.primary)
                 .lineLimit(1)

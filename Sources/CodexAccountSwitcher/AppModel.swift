@@ -48,7 +48,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var usageStates: [UUID: UsageViewState] = [:]
     @Published private(set) var tokenActivities: [UUID: TokenActivity] = [:]
     @Published private(set) var tokenActivityRefreshFinished = false
-    @Published private(set) var localModelUsage: LocalModelUsageSummary?
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
     @Published private(set) var isMutating = false
@@ -59,12 +58,12 @@ final class AppModel: ObservableObject {
 
     private let store: AccountStore
     private let codex: CodexClient
+    private let loginService: any LoginServicing
     private let switchService: any SwitchServicing
     private let desktop: any DesktopControlling
     private let taskStateReader: any DesktopTaskStateReading
     private let notificationService: any QuotaNotificationServicing
     private let operationGate: AccountOperationGate
-    private let localSessionScanner: LocalSessionUsageScanner
     private var hasStarted = false
     private var startTask: Task<Void, Never>?
     private var usageRefreshTask: Task<Void, Never>?
@@ -79,16 +78,16 @@ final class AppModel: ObservableObject {
         codex: CodexClient,
         switchService: any SwitchServicing,
         operationGate: AccountOperationGate,
-        localSessionScanner: LocalSessionUsageScanner = .init(),
         desktop: any DesktopControlling = DesktopController(),
         taskStateReader: (any DesktopTaskStateReading)? = nil,
-        notificationService: any QuotaNotificationServicing = InertQuotaNotificationService()
+        notificationService: any QuotaNotificationServicing = InertQuotaNotificationService(),
+        loginService: (any LoginServicing)? = nil
     ) {
         self.store = store
         self.codex = codex
+        self.loginService = loginService ?? codex
         self.switchService = switchService
         self.operationGate = operationGate
-        self.localSessionScanner = localSessionScanner
         self.desktop = desktop
         self.taskStateReader = taskStateReader ?? codex
         self.notificationService = notificationService
@@ -134,15 +133,20 @@ final class AppModel: ObservableObject {
         return accounts.first(where: { $0.id == activeAccountID })?.preferredLabel
     }
 
+    var commonTokenDateKey: String? {
+        guard !accounts.isEmpty else { return nil }
+        let activities = accounts.compactMap { tokenActivities[$0.id] }
+        guard activities.count == accounts.count else { return nil }
+        return TokenActivity.latestCommonDateKey(in: activities)
+    }
+
     var tokenReportingDate: String? {
-        let latestDates = accounts.compactMap { tokenActivities[$0.id]?.latestDateKey }
-        guard !latestDates.isEmpty else { return nil }
-        return latestDates.min()
+        commonTokenDateKey
     }
 
     var reportedTokenTotal: Int? {
-        guard let tokenReportingDate else { return nil }
-        let values = accounts.compactMap { tokenActivities[$0.id]?.tokens(on: tokenReportingDate) }
+        guard let commonTokenDateKey else { return nil }
+        let values = accounts.compactMap { tokenActivities[$0.id]?.tokens(on: commonTokenDateKey) }
         guard values.count == accounts.count else { return nil }
         return values.reduce(0, +)
     }
@@ -189,7 +193,16 @@ final class AppModel: ObservableObject {
         hasStarted = true
         refreshLaunchAtLoginStatus()
         do {
-            try await switchService.recoverIfNeeded()
+            let recoveryWarning: OperationError?
+            do {
+                try await switchService.recoverIfNeeded()
+                recoveryWarning = nil
+            } catch let error as OperationError {
+                // A committed target remains authoritative. Its verification,
+                // Desktop reopen, or journal cleanup warning must not prevent
+                // the account registry and settings from loading.
+                recoveryWarning = error
+            }
             settings = try await store.loadSettings()
             var registry = try await store.loadRegistry()
             if registry.accounts.isEmpty, await store.activeCredentialExists() {
@@ -223,6 +236,9 @@ final class AppModel: ObservableObject {
                 showError(error)
             }
             await confirmActiveIdentity()
+            if let recoveryWarning {
+                visibleError = recoveryWarning
+            }
         } catch {
             showError(error)
         }
@@ -336,9 +352,6 @@ final class AppModel: ObservableObject {
                 }
             }
         }
-        if settings.showsTokenActivity {
-            localModelUsage = await localSessionScanner.scan()
-        }
         tokenActivityRefreshFinished = true
         await performScheduledWarmupIfNeeded()
     }
@@ -364,9 +377,8 @@ final class AppModel: ObservableObject {
 
         for account in displayedAccounts {
             guard history.lastAttemptDayByProfile[account.id.uuidString] != day else { continue }
-            guard case let .loaded(currentUsage) = usageStates[account.id],
-                  currentUsage.fiveHourResetsAt == nil || currentUsage.fiveHourResetsAt! <= now
-            else { continue }
+            guard case let .loaded(currentUsage) = usageStates[account.id] else { continue }
+            guard currentUsage.allowsWarmup(at: now) else { continue }
 
             do {
                 // Persist before the network request so an app restart cannot duplicate a warmup.
@@ -470,12 +482,15 @@ final class AppModel: ObservableObject {
     }
 
     private func performAddAccount() async {
+        let id = UUID()
+        var profileCreated = false
+        var profileRegistered = false
         do {
-            let id = UUID()
             let home = try await store.createProfileDirectory(id: id)
+            profileCreated = true
             try Task.checkCancellation()
-            let identity = try await operationGate.run { [codex] in
-                try await codex.login(profileHome: home)
+            let identity = try await operationGate.run { [loginService] in
+                try await loginService.login(profileHome: home)
             }
             try Task.checkCancellation()
             let profile = AccountProfile(
@@ -490,10 +505,24 @@ final class AppModel: ObservableObject {
             try await operationGate.run { [store] in
                 try await store.addProfile(profile)
             }
+            profileRegistered = true
             apply(try await store.loadRegistry())
         } catch is CancellationError {
-            return
+            guard profileCreated, !profileRegistered else { return }
+            do {
+                try await store.removeUnregisteredProfile(id: id)
+            } catch {
+                showError(error)
+            }
         } catch {
+            if profileCreated, !profileRegistered {
+                do {
+                    try await store.removeUnregisteredProfile(id: id)
+                } catch let cleanupError {
+                    showError(LocalizedAppError(message: "\(error.localizedDescription) Cleanup also failed: \(cleanupError.localizedDescription)"))
+                    return
+                }
+            }
             showError(error)
         }
     }
@@ -673,6 +702,10 @@ final class AppModel: ObservableObject {
     func handleNotificationSwitchRequest(profileID: UUID) async {
         await start()
         guard accounts.contains(where: { $0.id == profileID }) else { return }
+        guard !isAddingAccount, !isMutating else {
+            showError(LocalizedAppError(message: text("switch_in_progress")))
+            return
+        }
 
         let taskState: DesktopTaskState
         if await desktop.isDesktopRunning() {
@@ -699,6 +732,7 @@ final class AppModel: ObservableObject {
             targetID: profileID,
             activeID: activeAccountID,
             isMutating: isMutating,
+            isAddingAccount: isAddingAccount,
             taskState: taskState
         ) {
         case .noAction:

@@ -218,8 +218,44 @@ actor AccountStore: AccountStoring {
         }
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: authURL.path)
         var current = try loadRegistry()
+        if current.accounts.isEmpty, current.activeAccountID == nil, activeCredentialExists() {
+            throw AccountStoreError.activeProfileMissing
+        }
+        let shouldBecomeActive = current.accounts.isEmpty
+            && current.activeAccountID == nil
+            && !activeCredentialExists()
+        if shouldBecomeActive {
+            // The first browser login establishes the active credential before the
+            // registry advertises the profile as active. This keeps an empty
+            // registry and an empty active CODEX_HOME consistent on every path.
+            let bytes = try Data(contentsOf: authURL)
+            try fileManager.createDirectory(at: activeHomeURL, withIntermediateDirectories: true)
+            try secureAtomicWrite(bytes, to: activeHomeURL.appending(path: "auth.json"))
+        }
         current.accounts.append(profile)
-        try saveRegistry(current)
+        if shouldBecomeActive {
+            current.activeAccountID = profile.id
+            current.accounts[current.accounts.count - 1].lastUsedAt = Date()
+        }
+        do {
+            try saveRegistry(current)
+        } catch {
+            // A failed registry write must not leave a newly installed first
+            // credential pointing at an unregistered profile.
+            if shouldBecomeActive {
+                let activeAuthURL = activeHomeURL.appending(path: "auth.json")
+                try? fileManager.removeItem(at: activeAuthURL)
+            }
+            throw error
+        }
+    }
+
+    func removeUnregisteredProfile(id: UUID) throws {
+        let current = try loadRegistry()
+        guard !current.accounts.contains(where: { $0.id == id }) else { return }
+        let directory = profileHome(id: id)
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        try fileManager.removeItem(at: directory)
     }
 
     func updateNickname(id: UUID, nickname: String?) throws {
@@ -250,20 +286,33 @@ actor AccountStore: AccountStoring {
         guard current.accounts.contains(where: { $0.id == id }) else {
             throw AccountStoreError.profileNotFound
         }
-        var cache = try loadUsageCache()
-        if cache.entries.contains(where: { $0.profileID == id }) {
-            cache.entries.removeAll(where: { $0.profileID == id })
-            try saveUsageCache(cache)
-        }
-        var warmupHistory = try loadWarmupHistory()
-        let removedDay = warmupHistory.lastAttemptDayByProfile.removeValue(forKey: id.uuidString)
-        let removedRecord = warmupHistory.lastRecordByProfile.removeValue(forKey: id.uuidString)
-        if removedDay != nil || removedRecord != nil {
-            try writeJSON(warmupHistory, to: warmupHistoryURL)
-        }
-        try fileManager.removeItem(at: profileHome(id: id))
+        let original = current
         current.accounts.removeAll(where: { $0.id == id })
         try saveRegistry(current)
+
+        do {
+            try fileManager.removeItem(at: profileHome(id: id))
+        } catch {
+            // Keep the credential recoverable whenever physical deletion fails.
+            // Even if restoring the registry also fails, the credential remains
+            // on disk and can be recovered manually instead of being destroyed.
+            try? saveRegistry(original)
+            throw error
+        }
+
+        // These records are derived metadata. Once registry removal and
+        // credential deletion have both committed, stale entries are harmless
+        // and filtered by profile ID on load, so cleanup must not turn a
+        // successful account removal into a reported failure.
+        if var cache = try? loadUsageCache() {
+            cache.entries.removeAll(where: { $0.profileID == id })
+            try? saveUsageCache(cache)
+        }
+        if var warmupHistory = try? loadWarmupHistory() {
+            warmupHistory.lastAttemptDayByProfile.removeValue(forKey: id.uuidString)
+            warmupHistory.lastRecordByProfile.removeValue(forKey: id.uuidString)
+            try? writeJSON(warmupHistory, to: warmupHistoryURL)
+        }
     }
 
     func saveCurrentCredential() throws {

@@ -101,7 +101,7 @@ jobs:
         if: env.SHOULD_RELEASE == 'true'
         run: |
           set -euo pipefail
-          swift test
+          ./scripts/run-swift-tests.sh
           ./scripts/run-core-checks.sh
 
       - name: Package, notarize, and staple Developer ID signed DMG

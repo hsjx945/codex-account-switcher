@@ -683,15 +683,14 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReadi
         guard let value,
               let used = value["usedPercent"]?.doubleValue,
               let duration = value["windowDurationMins"]?.intValue
-                ?? value["durationMinutes"]?.intValue,
-              let reset = value["resetsAt"]?.doubleValue
+                ?? value["durationMinutes"]?.intValue
         else {
             return nil
         }
         return RateLimitWindow(
             usedPercent: used,
             windowDurationMins: duration,
-            resetsAt: reset
+            resetsAt: value["resetsAt"]?.doubleValue
         )
     }
 }

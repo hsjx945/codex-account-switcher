@@ -310,6 +310,31 @@ struct AccountStoreTests {
         try await fixture.store.addProfile(target)
         return (original, target, originalBytes)
     }
+    @Test func firstBrowserAddedProfileBecomesActiveOnEmptyInstallation() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "first-added-profile-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let activeHome = root.appending(path: "active", directoryHint: .isDirectory)
+        let store = AccountStore(
+            baseURL: root.appending(path: "support", directoryHint: .isDirectory),
+            activeHomeURL: activeHome
+        )
+        let profile = AccountProfile(
+            id: UUID(), displayName: "First", email: "first@example.com",
+            accountID: "first", createdAt: Date(), lastUsedAt: nil
+        )
+        let profileHome = try await store.createProfileDirectory(id: profile.id)
+        let credential = Data("first-browser-credential".utf8)
+        try credential.write(to: profileHome.appending(path: "auth.json"))
+
+        try await store.addProfile(profile)
+
+        #expect(try await store.loadRegistry().activeAccountID == profile.id)
+        #expect(try Data(contentsOf: activeHome.appending(path: "auth.json")) == credential)
+        #expect(try permissions(activeHome.appending(path: "auth.json")) == 0o600)
+    }
 }
 
 private struct StoreTestDesktop: DesktopControlling {

@@ -85,4 +85,38 @@ struct WeeklyUsageNormalizerTests {
             #expect(result.fiveHourRemainingPercent == expected, "used percent: \(usedPercent)")
         }
     }
+
+    @Test func preservesUsageWhenResetTimestampsAreMissing() throws {
+        let result = try WeeklyUsageNormalizer.normalize([
+            RateLimitWindow(usedPercent: 25, windowDurationMins: 300, resetsAt: nil),
+            RateLimitWindow(usedPercent: 40, windowDurationMins: 7 * 24 * 60, resetsAt: nil),
+        ])
+
+        #expect(result.remainingPercent == 60)
+        #expect(result.resetsAt == nil)
+        #expect(result.fiveHourRemainingPercent == 75)
+        #expect(result.fiveHourResetsAt == nil)
+        #expect(!result.allowsWarmup(at: Date()))
+    }
+
+    @Test func selectsLatestDateInRealTokenIntersection() {
+        let first = TokenActivity(
+            dailyBuckets: [
+                DailyTokenUsage(startDate: "2026-09-03", tokens: 10),
+                DailyTokenUsage(startDate: "2026-09-05", tokens: 20),
+            ],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        let second = TokenActivity(
+            dailyBuckets: [
+                DailyTokenUsage(startDate: "2026-09-03", tokens: 30),
+                DailyTokenUsage(startDate: "2026-09-04", tokens: 40),
+            ],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+
+        #expect(TokenActivity.latestCommonDateKey(in: [first, second]) == "2026-09-03")
+    }
 }
