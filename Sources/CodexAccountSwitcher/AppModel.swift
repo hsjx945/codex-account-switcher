@@ -128,6 +128,17 @@ final class AppModel: ObservableObject {
         return usageStates[activeAccountID]?.displayedUsage?.remainingPercent
     }
 
+    var activeAccountLabel: String? {
+        guard let activeAccountID else { return nil }
+        return accounts.first(where: { $0.id == activeAccountID })?.preferredLabel
+    }
+
+    var todayTokenTotal: Int? {
+        let values = accounts.compactMap { tokenActivities[$0.id]?.tokensForToday() }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +)
+    }
+
     var activeIdentityConfirmed: Bool {
         activeIdentityState == .confirmed
     }

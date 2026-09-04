@@ -93,6 +93,14 @@ struct MenuBarPopover: View {
                 }
             }
 
+            if model.settings.showsTokenActivity, !model.accounts.isEmpty {
+                TokenTotalRow(
+                    title: model.text("total_token_today"),
+                    tokens: model.todayTokenTotal,
+                    unavailableTitle: model.text("token_unavailable_short")
+                )
+            }
+
             Divider()
 
             HStack(spacing: 5) {
@@ -137,9 +145,6 @@ struct MenuBarPopover: View {
                         language: model.settings.language,
                         showsFiveHourUsage: model.settings.showsFiveHourUsage,
                         tokenActivity: model.tokenActivities[account.id],
-                        localModelUsage: account.id == model.activeAccountID
-                            ? model.localModelUsage
-                            : nil,
                         showsTokenActivity: model.settings.showsTokenActivity,
                         warmupStatus: model.warmupStatuses[account.id]
                     )
@@ -156,6 +161,46 @@ struct MenuBarPopover: View {
             await model.switchAccount(to: account.id)
             page = .accounts
         }
+    }
+}
+
+private struct TokenTotalRow: View {
+    let title: String
+    let tokens: Int?
+    let unavailableTitle: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            Text(tokens.map(formatTokens) ?? unavailableTitle)
+                .font(.system(size: 15, weight: .bold).monospacedDigit())
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 11)
+        .background(totalBackground)
+    }
+
+    private var totalBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0.155, green: 0.16, blue: 0.17)
+            : .white
+    }
+
+    private func formatTokens(_ tokens: Int) -> String {
+        if tokens >= 1_000_000 {
+            return String(format: "%.1fM", Double(tokens) / 1_000_000)
+        }
+        if tokens >= 1_000 {
+            return String(format: "%.1fK", Double(tokens) / 1_000)
+        }
+        return String(tokens)
     }
 }
 

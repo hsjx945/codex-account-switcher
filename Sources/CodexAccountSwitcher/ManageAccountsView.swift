@@ -211,18 +211,21 @@ private struct ManagedAccountRow: View {
             if account.id == model.activeAccountID {
                 Text(model.text("active"))
                     .font(.system(size: 9.5, weight: .bold))
-                    .foregroundStyle(Color(nsColor: .systemGreen))
+                    .foregroundStyle(Color(red: 0.05, green: 0.34, blue: 0.16))
                     .padding(.horizontal, 7)
                     .frame(height: 20)
                     .background(
-                        Color(nsColor: .systemGreen).opacity(0.12),
+                        Color(red: 0.80, green: 0.94, blue: 0.85),
                         in: RoundedRectangle(cornerRadius: 5)
                     )
             }
 
             Button(action: onEdit) {
-                Image(systemName: "pencil")
-                    .frame(width: 28, height: 28)
+                Label(model.text("set_remark"), systemImage: "pencil")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .padding(.horizontal, 7)
+                    .frame(height: 28)
+                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain)
             .help(model.text("edit_nickname"))

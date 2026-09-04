@@ -8,7 +8,6 @@ struct AccountRow: View {
     let language: AppLanguage
     let showsFiveHourUsage: Bool
     let tokenActivity: TokenActivity?
-    let localModelUsage: LocalModelUsageSummary?
     let showsTokenActivity: Bool
     let warmupStatus: WarmupRecord?
 
@@ -20,7 +19,7 @@ struct AccountRow: View {
             titleRow
             usageContent
 
-            if isActive, showsTokenActivity {
+            if showsTokenActivity {
                 currentTokenContent
             }
 
@@ -91,11 +90,11 @@ struct AccountRow: View {
         case .idle:
             Text("\(L10n.string("usage", language: language)) —")
                 .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
         case let .unavailable(message):
             Text(L10n.string("usage_unavailable", language: language))
                 .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
                 .help(message)
         case let .loaded(usage), let .stale(usage, _):
             VStack(spacing: 9) {
@@ -126,7 +125,7 @@ struct AccountRow: View {
         HStack(spacing: 8) {
             Text(title)
                 .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
                 .frame(width: 48, alignment: .leading)
                 .lineLimit(1)
 
@@ -141,7 +140,7 @@ struct AccountRow: View {
 
             Text(resetText(for: resetsAt))
                 .font(.system(size: 10.5).monospacedDigit())
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .frame(width: 92, alignment: .trailing)
         }
@@ -154,7 +153,7 @@ struct AccountRow: View {
         HStack(alignment: .firstTextBaseline) {
             Text(L10n.string("today_token", language: language))
                 .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
 
             Spacer()
 
@@ -164,16 +163,13 @@ struct AccountRow: View {
             } else {
                 Text(L10n.string("token_scanning_short", language: language))
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
             }
         }
     }
 
     private var todayTokens: Int? {
-        if let localModelUsage {
-            return localModelUsage.models.reduce(0) { $0 + $1.todayTokens }
-        }
-        return tokenActivity?.tokensForToday()
+        tokenActivity?.tokensForToday()
     }
 
     private func warmupContent(_ record: WarmupRecord) -> some View {
@@ -185,7 +181,7 @@ struct AccountRow: View {
         }
         return Text("\(L10n.string(key, language: language)) · \(BeijingDateTimeFormatter.string(from: record.attemptedAt))")
             .font(.system(size: 10.5))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
             .lineLimit(1)
     }
 
