@@ -95,8 +95,8 @@ struct MenuBarPopover: View {
 
             if model.settings.showsTokenActivity, !model.accounts.isEmpty {
                 TokenTotalRow(
-                    title: model.text("total_token_today"),
-                    tokens: model.todayTokenTotal,
+                    title: tokenTotalTitle,
+                    tokens: model.reportedTokenTotal,
                     unavailableTitle: model.text("token_unavailable_short")
                 )
             }
@@ -145,6 +145,8 @@ struct MenuBarPopover: View {
                         language: model.settings.language,
                         showsFiveHourUsage: model.settings.showsFiveHourUsage,
                         tokenActivity: model.tokenActivities[account.id],
+                        tokenReportingDate: model.tokenReportingDate,
+                        tokenActivityRefreshFinished: model.tokenActivityRefreshFinished,
                         showsTokenActivity: model.settings.showsTokenActivity,
                         warmupStatus: model.warmupStatuses[account.id]
                     )
@@ -161,6 +163,25 @@ struct MenuBarPopover: View {
             await model.switchAccount(to: account.id)
             page = .accounts
         }
+    }
+
+    private var tokenTotalTitle: String {
+        guard let dateKey = model.tokenReportingDate else {
+            return model.text("total_token_today")
+        }
+        let parts = dateKey.split(separator: "-")
+        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]) else {
+            return model.format("dated_token_total", dateKey)
+        }
+        let usesChinese = model.settings.language == .simplifiedChinese
+            || (model.settings.language == .system && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
+        let displayDate = usesChinese ? "\(month)月\(day)日" : "\(month)/\(day)"
+        let today = BeijingDateTimeFormatter.calendar.dateComponents([.year, .month, .day], from: Date())
+        if today.month == month, today.day == day,
+           Int(parts[0]) == today.year {
+            return model.text("total_token_today")
+        }
+        return model.format("dated_token_total", displayDate)
     }
 }
 

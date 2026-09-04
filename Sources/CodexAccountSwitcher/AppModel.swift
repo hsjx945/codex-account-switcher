@@ -47,6 +47,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeAccountID: UUID?
     @Published private(set) var usageStates: [UUID: UsageViewState] = [:]
     @Published private(set) var tokenActivities: [UUID: TokenActivity] = [:]
+    @Published private(set) var tokenActivityRefreshFinished = false
     @Published private(set) var localModelUsage: LocalModelUsageSummary?
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
@@ -133,9 +134,16 @@ final class AppModel: ObservableObject {
         return accounts.first(where: { $0.id == activeAccountID })?.preferredLabel
     }
 
-    var todayTokenTotal: Int? {
-        let values = accounts.compactMap { tokenActivities[$0.id]?.tokensForToday() }
-        guard !values.isEmpty else { return nil }
+    var tokenReportingDate: String? {
+        let latestDates = accounts.compactMap { tokenActivities[$0.id]?.latestDateKey }
+        guard !latestDates.isEmpty else { return nil }
+        return latestDates.min()
+    }
+
+    var reportedTokenTotal: Int? {
+        guard let tokenReportingDate else { return nil }
+        let values = accounts.compactMap { tokenActivities[$0.id]?.tokens(on: tokenReportingDate) }
+        guard values.count == accounts.count else { return nil }
         return values.reduce(0, +)
     }
 
@@ -331,6 +339,7 @@ final class AppModel: ObservableObject {
         if settings.showsTokenActivity {
             localModelUsage = await localSessionScanner.scan()
         }
+        tokenActivityRefreshFinished = true
         await performScheduledWarmupIfNeeded()
     }
 
@@ -658,6 +667,7 @@ final class AppModel: ObservableObject {
                 lastNotifiedFiveHourResetAt[entry.profileID] = resetAt
             }
         }
+        tokenActivityRefreshFinished = true
     }
 
     func handleNotificationSwitchRequest(profileID: UUID) async {

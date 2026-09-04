@@ -231,6 +231,16 @@ struct TokenActivity: Codable, Equatable, Sendable {
         guard !matches.isEmpty else { return nil }
         return matches.reduce(0) { $0 + $1.tokens }
     }
+
+    var latestDateKey: String? {
+        dailyBuckets.map(\.startDate).max()
+    }
+
+    func tokens(on dateKey: String) -> Int? {
+        let matches = dailyBuckets.filter { $0.startDate == dateKey }
+        guard !matches.isEmpty else { return nil }
+        return matches.reduce(0) { $0 + $1.tokens }
+    }
 }
 
 struct WeeklyUsage: Codable, Equatable, Sendable {

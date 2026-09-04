@@ -74,6 +74,9 @@ struct PlanAndDateFormattingTests {
         #expect(activity.tokensForToday(now: now, calendar: calendar) == nil)
         #expect(activity.tokensIfCovered(inLastDays: 1, now: now, calendar: calendar) == nil)
         #expect(activity.tokensIfCovered(inLastDays: 7, now: now, calendar: calendar) == 100)
+        #expect(activity.latestDateKey == "2026-09-03")
+        #expect(activity.tokens(on: "2026-09-03") == 100)
+        #expect(activity.tokens(on: "2026-09-04") == nil)
     }
 
     @Test func formatsDatesInChineseUsingBeijingTime() throws {

@@ -8,6 +8,8 @@ struct AccountRow: View {
     let language: AppLanguage
     let showsFiveHourUsage: Bool
     let tokenActivity: TokenActivity?
+    let tokenReportingDate: String?
+    let tokenActivityRefreshFinished: Bool
     let showsTokenActivity: Bool
     let warmupStatus: WarmupRecord?
 
@@ -151,25 +153,59 @@ struct AccountRow: View {
         Divider()
 
         HStack(alignment: .firstTextBaseline) {
-            Text(L10n.string("today_token", language: language))
+            Text(tokenRowTitle)
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.primary)
 
             Spacer()
 
-            if let todayTokens {
-                Text(formatTokens(todayTokens))
+            if let reportedTokens {
+                Text(formatTokens(reportedTokens))
                     .font(.system(size: 14, weight: .bold).monospacedDigit())
             } else {
-                Text(L10n.string("token_scanning_short", language: language))
+                Text(L10n.string(
+                    tokenActivityRefreshFinished ? "token_unavailable_short" : "token_scanning_short",
+                    language: language
+                ))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.primary)
             }
         }
     }
 
-    private var todayTokens: Int? {
-        tokenActivity?.tokensForToday()
+    private var reportedTokens: Int? {
+        guard let tokenReportingDate else { return nil }
+        return tokenActivity?.tokens(on: tokenReportingDate)
+    }
+
+    private var tokenRowTitle: String {
+        guard let tokenReportingDate else {
+            return L10n.string("today_token", language: language)
+        }
+        let today = BeijingDateTimeFormatter.calendar.dateComponents([.year, .month, .day], from: Date())
+        let todayKey = String(
+            format: "%04d-%02d-%02d",
+            today.year ?? 0,
+            today.month ?? 0,
+            today.day ?? 0
+        )
+        guard tokenReportingDate != todayKey else {
+            return L10n.string("today_token", language: language)
+        }
+        return String(
+            format: L10n.string("dated_token", language: language),
+            shortDate(tokenReportingDate)
+        )
+    }
+
+    private func shortDate(_ dateKey: String) -> String {
+        let parts = dateKey.split(separator: "-")
+        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]) else {
+            return dateKey
+        }
+        let usesChinese = language == .simplifiedChinese
+            || (language == .system && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
+        return usesChinese ? "\(month)月\(day)日" : "\(month)/\(day)"
     }
 
     private func warmupContent(_ record: WarmupRecord) -> some View {
