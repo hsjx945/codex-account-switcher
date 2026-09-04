@@ -1,7 +1,9 @@
 # Tiny Codex Switcher handoff
 
-Date: 2026-09-04  
-Accepted source: ChatGPT conversation `6a9a1f51-6f84-83e8-9664-98f3b9b12e6f`  
+Date: 2026-09-04
+
+Accepted source: ChatGPT conversation `6a9a1f51-6f84-83e8-9664-98f3b9b12e6f`
+
 Upstream baseline: `liuzhao1225/codex-account-switcher@1e406ab9b5e8fb8e8a1286354916740676b35f2a`
 
 The original conversation referenced a longer generated document that was not attached to the task. This file records the accepted decisions visible in the conversation and the implementation boundary used by this repository. It does not claim byte-for-byte identity with the missing document.
