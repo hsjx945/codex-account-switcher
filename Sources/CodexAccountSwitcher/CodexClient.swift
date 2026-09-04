@@ -214,7 +214,7 @@ private actor JSONRPCSession {
                 "clientInfo": [
                     "name": "codex_account_switcher",
                     "title": "Codex Account Switcher",
-                    "version": "0.1.6",
+                    "version": "0.2.0",
                 ],
             ],
         ])

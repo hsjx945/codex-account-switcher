@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import ServiceManagement
@@ -38,6 +39,7 @@ private actor Recorder {
 
 private struct FakeDesktop: DesktopControlling {
     let recorder: Recorder
+    func isDesktopRunning() async -> Bool { true }
     func closeDesktop() async throws { await recorder.append(.closeDesktop) }
     func reopenDesktop() async throws { await recorder.append(.reopenDesktop) }
 }
@@ -60,6 +62,7 @@ private actor FakeStore: AccountStoring {
     func profileHome(id: UUID) -> URL { URL(fileURLWithPath: "/tmp/target") }
     func activeCodexHome() -> URL { URL(fileURLWithPath: "/tmp/active") }
     func activeCredentialExists() -> Bool { true }
+    func readActiveCredential() -> Data { Data("original".utf8) }
     func createProfileDirectory(id: UUID) -> URL { URL(fileURLWithPath: "/tmp/target") }
     func importCurrentProfile(_ profile: AccountProfile) {}
     func addProfile(_ profile: AccountProfile) {}
@@ -67,6 +70,7 @@ private actor FakeStore: AccountStoring {
     func saveCurrentCredential() async { await recorder.append(.saveCurrentCredential) }
     func activateTargetCredential(id: UUID) async { await recorder.append(.activateTargetCredential) }
     func restoreActiveCredential(id: UUID) {}
+    func restoreCredential(_ credential: Data) {}
     func commitActiveAccountID(_ id: UUID) async { await recorder.append(.commitActiveAccountID) }
 }
 
@@ -90,6 +94,14 @@ private struct ReopenFailureSwitchService: SwitchServicing {
     func switchAccount(to targetID: UUID) async throws {
         try await store.commitActiveAccountID(targetID)
         throw OperationError.stage(.reopenDesktop, InjectedReopenFailure())
+    }
+
+    func recoverIfNeeded() async throws {}
+}
+
+private struct CoreRollbackKeyProvider: RollbackKeyProviding {
+    func loadOrCreateKey() throws -> SymmetricKey {
+        SymmetricKey(data: Data(repeating: 0x42, count: 32))
     }
 }
 
@@ -252,10 +264,15 @@ struct CoreChecks {
         try secondBytes.write(to: activeCredential)
 
         let recorder = Recorder()
-        let switcher = SwitchService(
+        let switcher = SwitchCoordinator(
             desktop: FakeDesktop(recorder: recorder),
             store: FakeStore(recorder: recorder, original: first, target: second),
-            codex: FakeCodex(recorder: recorder, target: second)
+            codex: FakeCodex(recorder: recorder, target: second),
+            recovery: SwitchRecoveryStore(
+                baseURL: root.appending(path: "core-switch-recovery"),
+                keyProvider: CoreRollbackKeyProvider()
+            ),
+            operationGate: AccountOperationGate()
         )
         try await switcher.switchAccount(to: second.id)
         let recordedStages = await recorder.snapshot()
@@ -297,7 +314,8 @@ struct CoreChecks {
         let appModel = AppModel(
             store: store,
             codex: client,
-            switchService: ReopenFailureSwitchService(store: store)
+            switchService: ReopenFailureSwitchService(store: store),
+            operationGate: AccountOperationGate()
         )
         await appModel.start()
         try require(
@@ -362,7 +380,8 @@ struct CoreChecks {
         let countingModel = AppModel(
             store: store,
             codex: countingClient,
-            switchService: ReopenFailureSwitchService(store: store)
+            switchService: ReopenFailureSwitchService(store: store),
+            operationGate: AccountOperationGate()
         )
         await countingModel.start()
         try require(countingModel.accounts.count == 3, "counting model loaded all profiles")
@@ -412,7 +431,8 @@ struct CoreChecks {
         let scheduledModel = AppModel(
             store: store,
             codex: scheduledClient,
-            switchService: ReopenFailureSwitchService(store: store)
+            switchService: ReopenFailureSwitchService(store: store),
+            operationGate: AccountOperationGate()
         )
         await scheduledModel.startBackgroundUsageRefresh(every: .seconds(3))
         try await waitForLineCount(at: scheduledRequestCountURL, atLeast: 2)
@@ -501,7 +521,8 @@ struct CoreChecks {
         let failureModel = AppModel(
             store: store,
             codex: failingClient,
-            switchService: ReopenFailureSwitchService(store: store)
+            switchService: ReopenFailureSwitchService(store: store),
+            operationGate: AccountOperationGate()
         )
         await failureModel.start()
         failureModel.refreshWeeklyUsage()

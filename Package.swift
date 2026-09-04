@@ -83,6 +83,8 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("CryptoKit"),
+                .linkedFramework("Security"),
                 .linkedFramework("ServiceManagement"),
             ]
         ),

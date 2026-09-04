@@ -10,6 +10,7 @@ swiftc \
   "$project_dir/Sources/CodexAccountSwitcher/Models.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/WeeklyUsageNormalizer.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/AccountStore.swift" \
+  "$project_dir/Sources/CodexAccountSwitcher/SwitchRecovery.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/SwitchService.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/DesktopController.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/CodexClient.swift" \
@@ -17,6 +18,8 @@ swiftc \
   "$project_dir/Sources/CodexAccountSwitcher/AppModel.swift" \
   "$project_dir/Checks/CoreChecks.swift" \
   -framework AppKit \
+  -framework CryptoKit \
+  -framework Security \
   -framework SwiftUI \
   -o "$output_dir/CoreChecks"
 

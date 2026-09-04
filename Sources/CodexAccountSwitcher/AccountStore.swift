@@ -7,6 +7,7 @@ protocol AccountStoring: Sendable {
     func profileHome(id: UUID) async -> URL
     func activeCodexHome() async -> URL
     func activeCredentialExists() async -> Bool
+    func readActiveCredential() async throws -> Data
     func createProfileDirectory(id: UUID) async throws -> URL
     func importCurrentProfile(_ profile: AccountProfile) async throws
     func addProfile(_ profile: AccountProfile) async throws
@@ -14,6 +15,7 @@ protocol AccountStoring: Sendable {
     func saveCurrentCredential() async throws
     func activateTargetCredential(id: UUID) async throws
     func restoreActiveCredential(id: UUID) async throws
+    func restoreCredential(_ credential: Data) async throws
     func commitActiveAccountID(_ id: UUID) async throws
 }
 
@@ -125,6 +127,14 @@ actor AccountStore: AccountStoring {
         fileManager.fileExists(atPath: activeHomeURL.appending(path: "auth.json").path)
     }
 
+    func readActiveCredential() throws -> Data {
+        let source = activeHomeURL.appending(path: "auth.json")
+        guard fileManager.fileExists(atPath: source.path) else {
+            throw AccountStoreError.activeCredentialMissing
+        }
+        return try Data(contentsOf: source)
+    }
+
     func createProfileDirectory(id: UUID) throws -> URL {
         try prepareDirectories()
         let directory = profileHome(id: id)
@@ -197,6 +207,11 @@ actor AccountStore: AccountStoring {
 
     func restoreActiveCredential(id: UUID) throws {
         try installCredential(id: id)
+    }
+
+    func restoreCredential(_ credential: Data) throws {
+        try fileManager.createDirectory(at: activeHomeURL, withIntermediateDirectories: true)
+        try secureAtomicWrite(credential, to: activeHomeURL.appending(path: "auth.json"))
     }
 
     private func installCredential(id: UUID) throws {

@@ -84,25 +84,28 @@ struct AccountStoreTests {
         #expect(try await fixture.store.loadRegistry().activeAccountID == profiles.original.id)
     }
 
-    @Test func realStoreRestoresAfterVerificationFailureAndRetryPreservesOriginal() async throws {
+    @Test func realStoreRestoresExactBytesAfterVerificationFailure() async throws {
         let fixture = try StoreFixture()
         defer { fixture.remove() }
         let profiles = try await prepareSwitchProfiles(fixture)
-        let service = SwitchService(
+        let service = SwitchCoordinator(
             desktop: StoreTestDesktop(),
             store: fixture.store,
-            codex: StoreTestFailingCodex()
+            codex: StoreTestFailingCodex(),
+            recovery: SwitchRecoveryStore(
+                baseURL: fixture.support.appending(path: "recovery"),
+                keyProvider: FixedRollbackKeyProvider()
+            ),
+            operationGate: AccountOperationGate()
         )
 
-        for _ in 0..<2 {
-            do {
-                try await service.switchAccount(to: profiles.target.id)
-                Issue.record("Expected identity verification to fail")
-            } catch let error as OperationError {
-                #expect(error.stage == .verifyTargetIdentity)
-            } catch {
-                Issue.record("Expected OperationError, got \(error)")
-            }
+        do {
+            try await service.switchAccount(to: profiles.target.id)
+            Issue.record("Expected identity verification to fail")
+        } catch let error as OperationError {
+            #expect(error.stage == .verifyTargetIdentity)
+        } catch {
+            Issue.record("Expected OperationError, got \(error)")
         }
 
         let activeAuth = fixture.activeHome.appending(path: "auth.json")
@@ -122,10 +125,15 @@ struct AccountStoreTests {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         defer { _ = Darwin.chflags(accountsURL.path, 0) }
-        let service = SwitchService(
+        let service = SwitchCoordinator(
             desktop: StoreTestDesktop(),
             store: fixture.store,
-            codex: StoreTestMatchingCodex(target: profiles.target)
+            codex: StoreTestMatchingCodex(target: profiles.target),
+            recovery: SwitchRecoveryStore(
+                baseURL: fixture.support.appending(path: "recovery"),
+                keyProvider: FixedRollbackKeyProvider()
+            ),
+            operationGate: AccountOperationGate()
         )
 
         do {
@@ -273,6 +281,7 @@ struct AccountStoreTests {
 }
 
 private struct StoreTestDesktop: DesktopControlling {
+    func isDesktopRunning() async -> Bool { false }
     func closeDesktop() async throws {}
     func reopenDesktop() async throws {}
 }

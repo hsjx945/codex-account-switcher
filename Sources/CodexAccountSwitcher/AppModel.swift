@@ -48,6 +48,7 @@ final class AppModel: ObservableObject {
     private let store: AccountStore
     private let codex: CodexClient
     private let switchService: any SwitchServicing
+    private let operationGate: AccountOperationGate
     private var hasStarted = false
     private var usageRefreshTask: Task<Void, Never>?
     private var nextUsageRefreshTask: Task<Void, Never>?
@@ -58,24 +59,31 @@ final class AppModel: ObservableObject {
     init(
         store: AccountStore,
         codex: CodexClient,
-        switchService: any SwitchServicing
+        switchService: any SwitchServicing,
+        operationGate: AccountOperationGate
     ) {
         self.store = store
         self.codex = codex
         self.switchService = switchService
+        self.operationGate = operationGate
     }
 
     static func live() -> AppModel {
         let store = AccountStore()
         let codex = CodexClient()
+        let operationGate = AccountOperationGate()
+        let recovery = SwitchRecoveryStore()
         return AppModel(
             store: store,
             codex: codex,
-            switchService: SwitchService(
+            switchService: SwitchCoordinator(
                 desktop: DesktopController(),
                 store: store,
-                codex: codex
-            )
+                codex: codex,
+                recovery: recovery,
+                operationGate: operationGate
+            ),
+            operationGate: operationGate
         )
     }
 
@@ -109,6 +117,7 @@ final class AppModel: ObservableObject {
         hasStarted = true
         refreshLaunchAtLoginStatus()
         do {
+            try await switchService.recoverIfNeeded()
             settings = try await store.loadSettings()
             var registry = try await store.loadRegistry()
             if registry.accounts.isEmpty, await store.activeCredentialExists() {
@@ -195,9 +204,12 @@ final class AppModel: ObservableObject {
 
         await withTaskGroup(of: UsageRefreshResult.self) { group in
             for (id, home) in targets {
-                group.addTask { [codex] in
+                group.addTask { [codex, operationGate] in
                     do {
-                        return .success(id, try await codex.readWeeklyUsage(profileHome: home))
+                        let usage = try await operationGate.run {
+                            try await codex.readWeeklyUsage(profileHome: home)
+                        }
+                        return .success(id, usage)
                     } catch {
                         return .failure(id, error.localizedDescription)
                     }
@@ -277,7 +289,9 @@ final class AppModel: ObservableObject {
             let id = UUID()
             let home = try await store.createProfileDirectory(id: id)
             try Task.checkCancellation()
-            let identity = try await codex.login(profileHome: home)
+            let identity = try await operationGate.run { [codex] in
+                try await codex.login(profileHome: home)
+            }
             try Task.checkCancellation()
             let profile = AccountProfile(
                 id: id,
@@ -287,7 +301,9 @@ final class AppModel: ObservableObject {
                 createdAt: Date(),
                 lastUsedAt: nil
             )
-            try await store.addProfile(profile)
+            try await operationGate.run { [store] in
+                try await store.addProfile(profile)
+            }
             apply(try await store.loadRegistry())
         } catch is CancellationError {
             return
@@ -301,7 +317,9 @@ final class AppModel: ObservableObject {
         isMutating = true
         defer { isMutating = false }
         do {
-            try await store.removeAccount(id: id)
+            try await operationGate.run { [store] in
+                try await store.removeAccount(id: id)
+            }
             apply(try await store.loadRegistry())
             usageStates[id] = nil
         } catch {
@@ -381,7 +399,10 @@ final class AppModel: ObservableObject {
               let profile = accounts.first(where: { $0.id == activeID })
         else { return }
         do {
-            let identity = try await codex.readIdentity(profileHome: await store.activeCodexHome())
+            let activeHome = await store.activeCodexHome()
+            let identity = try await operationGate.run { [codex] in
+                try await codex.readIdentity(profileHome: activeHome)
+            }
             activeIdentityConfirmed = identity.matches(profile)
         } catch {
             activeIdentityConfirmed = false

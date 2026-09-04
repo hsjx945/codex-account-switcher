@@ -28,6 +28,10 @@ struct DesktopController: DesktopControlling {
     private let bundleIdentifiers = ["com.openai.codex"]
     private let applicationPaths = ["/Applications/ChatGPT.app", "/Applications/Codex.app"]
 
+    func isDesktopRunning() async -> Bool {
+        desktopRunning
+    }
+
     func closeDesktop() async throws {
         let running = NSWorkspace.shared.runningApplications.filter { application in
             guard let bundleIdentifier = application.bundleIdentifier else { return false }
@@ -44,7 +48,7 @@ struct DesktopController: DesktopControlling {
         let clock = ContinuousClock()
         let gracefulDeadline = clock.now.advanced(by: .seconds(2))
         while clock.now < gracefulDeadline {
-            if !isDesktopRunning { return }
+            if !desktopRunning { return }
             try await Task.sleep(for: .milliseconds(100))
         }
 
@@ -59,7 +63,7 @@ struct DesktopController: DesktopControlling {
 
         let deadline = clock.now.advanced(by: .seconds(15))
         while clock.now < deadline {
-            if !isDesktopRunning { return }
+            if !desktopRunning { return }
             try await Task.sleep(for: .milliseconds(100))
         }
         throw DesktopControllerError.didNotExit
@@ -89,7 +93,7 @@ struct DesktopController: DesktopControlling {
             .first(where: { FileManager.default.fileExists(atPath: $0.path) })
     }
 
-    private var isDesktopRunning: Bool {
+    private var desktopRunning: Bool {
         !runningDesktopApplications.isEmpty
     }
 
