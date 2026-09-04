@@ -6,8 +6,8 @@ struct PlanAndDateFormattingTests {
     @Test func showsBadgesOnlyForKnownPlusAndProPlans() {
         let arguments = [
             (planType: "plus", badge: "PLUS"),
-            (planType: "pro", badge: "PRO"),
-            (planType: "prolite", badge: "PRO LITE"),
+            (planType: "pro", badge: "PRO 20X"),
+            (planType: "prolite", badge: "PRO 5X"),
             (planType: "future_plan", badge: nil),
             (planType: nil, badge: nil),
         ]

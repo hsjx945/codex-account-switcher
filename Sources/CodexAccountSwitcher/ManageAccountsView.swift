@@ -152,12 +152,7 @@ struct ManageAccountsView: View {
     }
 
     private func managedAccountRow(_ account: AccountProfile) -> some View {
-        HStack(spacing: 9) {
-            Text(account.initials)
-                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                .frame(width: 28, height: 28)
-                .background(Color.primary.opacity(0.10), in: Circle())
-
+        HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.primaryLabel(style: model.settings.accountNameStyle))
                     .font(.system(size: 12, weight: .medium))
@@ -200,9 +195,9 @@ struct ManageAccountsView: View {
                 .disabled(model.isMutating)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .frame(minHeight: 44)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(minHeight: 46)
         .contentShape(Rectangle())
     }
 }

@@ -13,93 +13,94 @@ struct AccountRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text(account.initials)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .frame(width: 30, height: 30)
-                .background(Color.primary.opacity(0.10), in: Circle())
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(account.primaryLabel(style: nameStyle))
-                            .font(.system(size: 13, weight: .semibold))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let secondary = account.secondaryLabel(style: nameStyle) {
-                            Text(secondary)
-                                .font(.system(size: 9.5))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                    Spacer(minLength: 4)
-                    if let badge = account.subscriptionBadge {
-                        Text(badge)
-                            .font(.system(size: 8.5, weight: .semibold))
-                            .foregroundStyle(Color.primary.opacity(0.66))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.primary.opacity(0.065), in: Capsule())
-                    }
-                    if isActive {
-                        Text(L10n.string("active", language: language))
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(Color.primary.opacity(0.72))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Color(red: 0.38, green: 0.43, blue: 0.49).opacity(0.14),
-                                in: Capsule()
-                            )
-                            .overlay {
-                                Capsule()
-                                    .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
-                            }
-                    }
-                    if let usage = usageState.displayedUsage, !showsFiveHourUsage {
-                        Text(resetText(for: usage))
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.primaryLabel(style: nameStyle))
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let secondary = account.secondaryLabel(style: nameStyle) {
+                        Text(secondary)
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    } else if let message = usageState.refreshError {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.orange)
-                            .help(message)
-                            .accessibilityLabel(message)
+                            .truncationMode(.middle)
                     }
                 }
-
-                usageContent
-
-                if showsTokenActivity, let tokenActivity {
-                    tokenContent(tokenActivity)
+                Spacer(minLength: 8)
+                if let badge = account.subscriptionBadge {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color.primary.opacity(0.68))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.primary.opacity(0.065), in: Capsule())
                 }
-
-                if let warmupStatus {
-                    warmupContent(warmupStatus)
+                if isActive {
+                    Text(L10n.string("active", language: language))
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.09), in: Capsule())
+                }
+                if let usage = usageState.displayedUsage, !showsFiveHourUsage {
+                    Text(resetText(for: usage))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                } else if let message = usageState.refreshError {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.orange)
+                        .help(message)
+                        .accessibilityLabel(message)
                 }
             }
+
+            usageContent
+
+            if showsTokenActivity, let tokenActivity {
+                tokenContent(tokenActivity)
+            }
+
+            if let warmupStatus {
+                warmupContent(warmupStatus)
+            }
         }
-        .frame(minHeight: 50)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
+        .frame(minHeight: 62)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
         .background(
             rowBackground,
-            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(
+                    isActive ? Color.accentColor.opacity(0.24) : Color.primary.opacity(0.055),
+                    lineWidth: 0.75
+                )
+        }
+        .overlay(alignment: .leading) {
+            if isActive {
+                Capsule()
+                    .fill(Color.accentColor.opacity(0.75))
+                    .frame(width: 3, height: 30)
+                    .padding(.leading, 5)
+            }
+        }
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private func tokenContent(_ activity: TokenActivity) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 14) {
                 tokenMetric("today", activity.tokens(inLastDays: 1))
                 tokenMetric("last_7_days", activity.tokens(inLastDays: 7))
                 tokenMetric("last_30_days", activity.tokens(inLastDays: 30))
@@ -187,7 +188,7 @@ struct AccountRow: View {
     }
 
     private func expandedUsageContent(_ usage: WeeklyUsage) -> some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 8) {
             if let remaining = usage.fiveHourRemainingPercent,
                let resetsAt = usage.fiveHourResetsAt {
                 limitRow(
@@ -209,7 +210,7 @@ struct AccountRow: View {
         remainingPercent: Int,
         resetsAt: Date
     ) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 9) {
             Text(title)
                 .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -235,9 +236,9 @@ struct AccountRow: View {
 
     private var rowBackground: Color {
         if isActive {
-            return Color(red: 0.38, green: 0.43, blue: 0.49).opacity(0.13)
+            return Color(nsColor: .controlBackgroundColor).opacity(0.92)
         }
-        return Color.primary.opacity(isHovering ? 0.055 : 0)
+        return Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.72 : 0.46)
     }
 
     private func resetText(for usage: WeeklyUsage) -> String {
@@ -263,7 +264,7 @@ private struct UsageBar: View {
                     .frame(width: geometry.size.width * fraction)
             }
         }
-        .frame(width: 78, height: 3)
+        .frame(width: 104, height: 4)
     }
 
     private var fraction: CGFloat {

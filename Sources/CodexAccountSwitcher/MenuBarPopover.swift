@@ -44,7 +44,7 @@ struct MenuBarPopover: View {
                 }
             }
         }
-        .frame(width: 326)
+        .frame(width: 400)
         .onAppear {
             page = .accounts
         }
@@ -71,7 +71,7 @@ struct MenuBarPopover: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 28)
             } else {
-                VStack(spacing: 2) {
+                VStack(spacing: 8) {
                     ForEach(model.displayedAccounts) { account in
                         Button {
                             if account.id == model.activeAccountID {
@@ -96,7 +96,7 @@ struct MenuBarPopover: View {
                         .disabled(model.isMutating)
                     }
                 }
-                .padding(5)
+                .padding(10)
 
                 if model.settings.showsTokenActivity,
                    let summary = model.localModelUsage,
@@ -134,8 +134,8 @@ struct MenuBarPopover: View {
                     NSApp.terminate(nil)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
         }
     }
 }

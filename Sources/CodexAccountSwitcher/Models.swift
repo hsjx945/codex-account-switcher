@@ -22,8 +22,8 @@ struct AccountProfile: Codable, Identifiable, Equatable, Hashable, Sendable {
     var subscriptionBadge: String? {
         switch planType?.lowercased() {
         case "plus": "PLUS"
-        case "pro": "PRO"
-        case "prolite": "PRO LITE"
+        case "pro": "PRO 20X"
+        case "prolite": "PRO 5X"
         default: nil
         }
     }

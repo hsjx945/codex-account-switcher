@@ -280,8 +280,8 @@ struct CoreChecks {
             planType: "future_plan", createdAt: Date(timeIntervalSince1970: 1), lastUsedAt: nil
         )
         try require(plusProfile.subscriptionBadge == "PLUS", "plus plan identification")
-        try require(proProfile.subscriptionBadge == "PRO", "pro plan identification")
-        try require(proLiteProfile.subscriptionBadge == "PRO LITE", "pro lite plan identification")
+        try require(proProfile.subscriptionBadge == "PRO 20X", "pro plan identification")
+        try require(proLiteProfile.subscriptionBadge == "PRO 5X", "pro lite plan identification")
         try require(unknownProfile.subscriptionBadge == nil, "unknown plan does not get a badge")
         let beijingDate = try requireDate("2026-09-04T16:26:00Z")
         try require(
