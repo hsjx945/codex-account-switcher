@@ -4,7 +4,7 @@ import ServiceManagement
 import SwiftUI
 
 private enum UsageRefreshResult: Sendable {
-    case success(UUID, WeeklyUsage, TokenActivity?)
+    case success(UUID, WeeklyUsage, TokenActivity?, String?)
     case failure(UUID, String)
 }
 
@@ -170,6 +170,7 @@ final class AppModel: ObservableObject {
                     displayName: identity.email ?? identity.suggestedDisplayName,
                     email: identity.email,
                     accountID: identity.accountID,
+                    planType: identity.planType,
                     createdAt: Date(),
                     lastUsedAt: Date()
                 )
@@ -260,9 +261,10 @@ final class AppModel: ObservableObject {
                         let values = try await operationGate.run {
                             let usage = try await codex.readWeeklyUsage(profileHome: home)
                             let tokens = try? await codex.readTokenActivity(profileHome: home)
-                            return (usage, tokens)
+                            let identity = try? await codex.readIdentity(profileHome: home)
+                            return (usage, tokens, identity?.planType)
                         }
-                        return .success(id, values.0, values.1)
+                        return .success(id, values.0, values.1, values.2)
                     } catch {
                         return .failure(id, error.localizedDescription)
                     }
@@ -270,7 +272,7 @@ final class AppModel: ObservableObject {
             }
             for await result in group {
                 switch result {
-                case let .success(id, usage, activity):
+                case let .success(id, usage, activity, planType):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
                     let previousUsage = usageStates[id]?.displayedUsage
                     usageStates[id] = .loaded(usage)
@@ -279,6 +281,12 @@ final class AppModel: ObservableObject {
                         if let activity {
                             tokenActivities[id] = activity
                             try await store.cacheTokenActivity(activity, profileID: id)
+                        }
+                        if let planType {
+                            try await store.updatePlanType(id: id, planType: planType)
+                            if let index = accounts.firstIndex(where: { $0.id == id }) {
+                                accounts[index].planType = planType
+                            }
                         }
                         await notifyIfFiveHourResetReached(
                             profileID: id,
@@ -444,6 +452,7 @@ final class AppModel: ObservableObject {
                 displayName: identity.email ?? identity.suggestedDisplayName,
                 email: identity.email,
                 accountID: identity.accountID,
+                planType: identity.planType,
                 createdAt: Date(),
                 lastUsedAt: nil
             )

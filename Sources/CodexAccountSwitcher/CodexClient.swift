@@ -639,10 +639,11 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReadi
             ?? account["chatgptAccountId"]?.stringValue
             ?? account["id"]?.stringValue
         let email = account["email"]?.stringValue
+        let planType = account["planType"]?.stringValue
         guard accountID != nil || email != nil else {
             throw CodexClientError.identityUnavailable
         }
-        return AccountIdentity(accountID: accountID, email: email)
+        return AccountIdentity(accountID: accountID, email: email, planType: planType)
     }
 
     private func preferredWarmupModel(profileHome: URL) async throws -> String {

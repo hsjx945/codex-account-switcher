@@ -6,6 +6,7 @@ struct AccountProfile: Codable, Identifiable, Equatable, Hashable, Sendable {
     var nickname: String? = nil
     let email: String?
     let accountID: String?
+    var planType: String? = nil
     let createdAt: Date
     var lastUsedAt: Date?
 
@@ -16,6 +17,15 @@ struct AccountProfile: Codable, Identifiable, Equatable, Hashable, Sendable {
             .prefix(2)
         let value = parts.compactMap(\.first).map(String.init).joined()
         return value.isEmpty ? "?" : value.uppercased()
+    }
+
+    var subscriptionBadge: String? {
+        switch planType?.lowercased() {
+        case "plus": "PLUS"
+        case "pro": "PRO"
+        case "prolite": "PRO LITE"
+        default: nil
+        }
     }
 
     func primaryLabel(style: AccountNameStyle) -> String {
@@ -357,6 +367,7 @@ enum UsageViewState: Equatable, Sendable {
 struct AccountIdentity: Equatable, Sendable {
     let accountID: String?
     let email: String?
+    var planType: String? = nil
 
     var suggestedDisplayName: String {
         guard let email, let localPart = email.split(separator: "@").first else {
@@ -373,6 +384,17 @@ struct AccountIdentity: Equatable, Sendable {
             return expected.caseInsensitiveCompare(actual) == .orderedSame
         }
         return false
+    }
+}
+
+enum BeijingDateTimeFormatter {
+    static func string(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "M月d日 HH:mm"
+        return formatter.string(from: date)
     }
 }
 

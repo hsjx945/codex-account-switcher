@@ -87,6 +87,7 @@ The current public build targets **Apple Silicon** and requires **macOS 14 or la
 | **Local account storage** | Keep saved account data on your Mac without an app-owned proxy or cloud account service. |
 | **Usage at a glance** | Check weekly allowance by default, or enable the exact 300-minute (5-hour) service window and reset time in Settings. The optional row is off by default. |
 | **Email and nicknames** | Show the full sign-in email by default, set an optional nickname, and choose email, nickname, or both. |
+| **Plan and Beijing time** | Identify Plus, Pro, and Pro Lite from official account metadata, align every usage bar, and show reset times in Chinese Beijing time. A 5-hour row appears only when the service currently returns an exact 300-minute window. |
 | **Token and model activity** | Show per-account server totals for today, 7 days, and 30 days; keep local model detail separate across all account sessions on this Mac. |
 | **Reset reminders** | Optionally notify after the official 5-hour window advances, with a Switch action that requires confirmation whenever a running task is found or task state is unknown. |
 | **Experimental warmup** | Off by default; when explicitly enabled, send one minimal real request with an available small model at the chosen time and skip active 5-hour windows. |

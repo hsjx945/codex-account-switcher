@@ -35,6 +35,14 @@ struct AccountRow: View {
                         }
                     }
                     Spacer(minLength: 4)
+                    if let badge = account.subscriptionBadge {
+                        Text(badge)
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .foregroundStyle(Color.primary.opacity(0.66))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.065), in: Capsule())
+                    }
                     if isActive {
                         Text(L10n.string("active", language: language))
                             .font(.system(size: 9, weight: .semibold))
@@ -113,9 +121,7 @@ struct AccountRow: View {
         case .unconfirmed: "warmup_unconfirmed"
         case .failed: "warmup_failed"
         }
-        let timestamp = record.attemptedAt.formatted(
-            .dateTime.month(.abbreviated).day().hour().minute()
-        )
+        let timestamp = BeijingDateTimeFormatter.string(from: record.attemptedAt)
         let model = record.model.map { " · \($0)" } ?? ""
         return Text("\(L10n.string(key, language: language)) · \(timestamp)\(model)")
             .font(.system(size: 9.5))
@@ -187,15 +193,13 @@ struct AccountRow: View {
                 limitRow(
                     title: L10n.string("five_hour", language: language),
                     remainingPercent: remaining,
-                    resetsAt: resetsAt,
-                    includesDate: false
+                    resetsAt: resetsAt
                 )
             }
             limitRow(
                 title: L10n.string("weekly", language: language),
                 remainingPercent: usage.remainingPercent,
-                resetsAt: usage.resetsAt,
-                includesDate: true
+                resetsAt: usage.resetsAt
             )
         }
     }
@@ -203,8 +207,7 @@ struct AccountRow: View {
     private func limitRow(
         title: String,
         remainingPercent: Int,
-        resetsAt: Date,
-        includesDate: Bool
+        resetsAt: Date
     ) -> some View {
         HStack(spacing: 7) {
             Text(title)
@@ -222,7 +225,7 @@ struct AccountRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 31, alignment: .trailing)
 
-            Text(resetText(for: resetsAt, includesDate: includesDate))
+            Text(resetText(for: resetsAt))
                 .font(.system(size: 9.5).monospacedDigit())
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
@@ -238,13 +241,11 @@ struct AccountRow: View {
     }
 
     private func resetText(for usage: WeeklyUsage) -> String {
-        resetText(for: usage.resetsAt, includesDate: true)
+        resetText(for: usage.resetsAt)
     }
 
-    private func resetText(for resetsAt: Date, includesDate: Bool) -> String {
-        let date = includesDate
-            ? resetsAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())
-            : resetsAt.formatted(.dateTime.hour().minute())
+    private func resetText(for resetsAt: Date) -> String {
+        let date = BeijingDateTimeFormatter.string(from: resetsAt)
         return "\(L10n.string("resets", language: language)) \(date)"
     }
 }
@@ -262,8 +263,7 @@ private struct UsageBar: View {
                     .frame(width: geometry.size.width * fraction)
             }
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 3)
+        .frame(width: 78, height: 3)
     }
 
     private var fraction: CGFloat {

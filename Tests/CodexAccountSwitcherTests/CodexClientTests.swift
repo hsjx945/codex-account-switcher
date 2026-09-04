@@ -42,7 +42,7 @@ struct CodexClientTests {
           case "$line" in
             *initialized*) ;;
             *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
-            *account*read*) printf '%s\n' '{"id":1,"result":{"account":{"type":"chatgpt","email":"user@example.com","accountId":"acct-123"},"requiresOpenaiAuth":true}}' ;;
+            *account*read*) printf '%s\n' '{"id":1,"result":{"account":{"type":"chatgpt","email":"user@example.com","accountId":"acct-123","planType":"plus"},"requiresOpenaiAuth":true}}' ;;
           esac
         done
         """)
@@ -53,7 +53,29 @@ struct CodexClientTests {
         )
 
         let identity = try await client.readIdentity(profileHome: fixture.root)
-        #expect(identity == AccountIdentity(accountID: "acct-123", email: "user@example.com"))
+        #expect(identity == AccountIdentity(accountID: "acct-123", email: "user@example.com", planType: "plus"))
+    }
+
+    @Test func preservesProAndUnknownPlanTypesFromIdentity() async throws {
+        for planType in ["pro", "future_plan"] {
+            let fixture = try ScriptFixture(body: """
+            while IFS= read -r line; do
+              case "$line" in
+                *initialized*) ;;
+                *initialize*) printf '%s\\n' '{"id":0,"result":{}}' ;;
+                *account*read*) printf '%s\\n' '{"id":1,"result":{"account":{"email":"user@example.com","accountId":"acct-123","planType":"\(planType)"}}}' ;;
+              esac
+            done
+            """)
+            defer { fixture.remove() }
+            let client = CodexClient(
+                locator: CodexExecutableLocator(explicitURL: fixture.executable),
+                requestTimeout: .seconds(2)
+            )
+
+            let identity = try await client.readIdentity(profileHome: fixture.root)
+            #expect(identity.planType == planType)
+        }
     }
 
     @Test func readsOfficialDailyTokenBuckets() async throws {

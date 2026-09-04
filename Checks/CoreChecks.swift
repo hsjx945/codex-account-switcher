@@ -263,6 +263,40 @@ struct CoreChecks {
             L10n.string("show_five_hour_usage", language: .simplifiedChinese) == "显示 5 小时用量",
             "Simplified Chinese five-hour setting label"
         )
+        let plusProfile = AccountProfile(
+            id: UUID(), displayName: "Plus", email: "plus@example.com", accountID: "plus",
+            planType: "plus", createdAt: Date(timeIntervalSince1970: 1), lastUsedAt: nil
+        )
+        let proProfile = AccountProfile(
+            id: UUID(), displayName: "Pro", email: "pro@example.com", accountID: "pro",
+            planType: "pro", createdAt: Date(timeIntervalSince1970: 1), lastUsedAt: nil
+        )
+        let proLiteProfile = AccountProfile(
+            id: UUID(), displayName: "Pro Lite", email: "prolite@example.com", accountID: "prolite",
+            planType: "prolite", createdAt: Date(timeIntervalSince1970: 1), lastUsedAt: nil
+        )
+        let unknownProfile = AccountProfile(
+            id: UUID(), displayName: "Unknown", email: "unknown@example.com", accountID: "unknown",
+            planType: "future_plan", createdAt: Date(timeIntervalSince1970: 1), lastUsedAt: nil
+        )
+        try require(plusProfile.subscriptionBadge == "PLUS", "plus plan identification")
+        try require(proProfile.subscriptionBadge == "PRO", "pro plan identification")
+        try require(proLiteProfile.subscriptionBadge == "PRO LITE", "pro lite plan identification")
+        try require(unknownProfile.subscriptionBadge == nil, "unknown plan does not get a badge")
+        let beijingDate = try requireDate("2026-09-04T16:26:00Z")
+        try require(
+            BeijingDateTimeFormatter.string(from: beijingDate) == "9月5日 00:26",
+            "reset dates use Chinese Beijing time"
+        )
+        let noFiveHourWindow = try WeeklyUsageNormalizer.normalize([
+            RateLimitWindow(usedPercent: 20, windowDurationMins: 299, resetsAt: 1),
+            RateLimitWindow(usedPercent: 20, windowDurationMins: 301, resetsAt: 2),
+            RateLimitWindow(usedPercent: 58, windowDurationMins: 10_080, resetsAt: 1_750_000_000),
+        ])
+        try require(
+            noFiveHourWindow.fiveHourRemainingPercent == nil && noFiveHourWindow.fiveHourResetsAt == nil,
+            "missing exact 300-minute window leaves five-hour usage absent"
+        )
 
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appending(path: "switcher-check-\(UUID().uuidString)")

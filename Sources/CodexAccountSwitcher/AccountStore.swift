@@ -232,6 +232,16 @@ actor AccountStore: AccountStoring {
         try saveRegistry(current)
     }
 
+    func updatePlanType(id: UUID, planType: String) throws {
+        var current = try loadRegistry()
+        guard let index = current.accounts.firstIndex(where: { $0.id == id }) else {
+            throw AccountStoreError.profileNotFound
+        }
+        guard current.accounts[index].planType != planType else { return }
+        current.accounts[index].planType = planType
+        try saveRegistry(current)
+    }
+
     func removeAccount(id: UUID) throws {
         var current = try loadRegistry()
         guard current.activeAccountID != id else {
