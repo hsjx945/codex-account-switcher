@@ -175,6 +175,7 @@ struct SettingsView: View {
 private struct SettingsSection<Content: View>: View {
     let title: String
     let content: Content
+    @Environment(\.colorScheme) private var colorScheme
 
     init(title: String, @ViewBuilder content: () -> Content) {
         self.title = title
@@ -191,7 +192,7 @@ private struct SettingsSection<Content: View>: View {
 
             content
                 .background(
-                    Color(nsColor: .controlBackgroundColor).opacity(0.56),
+                    sectionBackground,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                 )
                 .overlay {
@@ -199,6 +200,12 @@ private struct SettingsSection<Content: View>: View {
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 }
         }
+    }
+
+    private var sectionBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0.155, green: 0.16, blue: 0.17)
+            : .white
     }
 }
 

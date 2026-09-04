@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarPopover: View {
     @ObservedObject var model: AppModel
+    @Environment(\.colorScheme) private var colorScheme
     @State private var page: PopoverPage = .accounts
 
     var body: some View {
@@ -39,11 +40,18 @@ struct MenuBarPopover: View {
             }
         }
         .frame(width: 420)
+        .background(popoverBackground)
         .onAppear { page = .accounts }
         .task {
             await model.start()
             model.refreshWeeklyUsage()
         }
+    }
+
+    private var popoverBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0.105, green: 0.11, blue: 0.12)
+            : Color(red: 0.965, green: 0.968, blue: 0.972)
     }
 
     private var accountPage: some View {
@@ -52,13 +60,10 @@ struct MenuBarPopover: View {
             case .checking, .confirmed:
                 EmptyView()
             case .unavailable:
-                IdentityStatusBanner(
-                    title: model.text("identity_temporarily_unavailable"),
-                    systemImage: "wifi.exclamationmark",
-                    color: .orange,
-                    retryTitle: model.text("retry"),
-                    onRetry: model.retryActiveIdentityConfirmation
-                )
+                // A successful account/read response can legitimately contain no
+                // identity. That is not evidence of a mismatch, so keep the list
+                // quiet and reserve the warning banner for an actionable conflict.
+                EmptyView()
             case .mismatch:
                 IdentityStatusBanner(
                     title: model.text("identity_mismatch"),
@@ -168,6 +173,7 @@ private struct IdentityStatusBanner: View {
     let color: Color
     let retryTitle: String
     let onRetry: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 8) {
@@ -189,7 +195,13 @@ private struct IdentityStatusBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(color.opacity(0.08))
+        .background(bannerBackground)
+    }
+
+    private var bannerBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0.30, green: 0.105, blue: 0.115)
+            : Color(red: 1.0, green: 0.90, blue: 0.90)
     }
 }
 

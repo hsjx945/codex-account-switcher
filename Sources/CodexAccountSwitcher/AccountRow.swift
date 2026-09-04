@@ -12,6 +12,7 @@ struct AccountRow: View {
     let showsTokenActivity: Bool
     let warmupStatus: WarmupRecord?
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
 
     var body: some View {
@@ -66,8 +67,8 @@ struct AccountRow: View {
                 if isActive {
                     StatusTag(
                         title: L10n.string("active", language: language),
-                        foreground: Color(nsColor: .systemGreen),
-                        background: Color(nsColor: .systemGreen).opacity(0.13)
+                        foreground: activeTagPalette.foreground,
+                        background: activeTagPalette.background
                     )
                 }
 
@@ -189,28 +190,74 @@ struct AccountRow: View {
     }
 
     private var rowBackground: Color {
-        if isActive {
-            return Color.orange.opacity(isHovering ? 0.085 : 0.055)
+        if colorScheme == .dark {
+            if isActive {
+                return isHovering
+                    ? Color(red: 0.225, green: 0.17, blue: 0.135)
+                    : Color(red: 0.19, green: 0.145, blue: 0.12)
+            }
+            return isHovering
+                ? Color(red: 0.205, green: 0.21, blue: 0.22)
+                : Color(red: 0.155, green: 0.16, blue: 0.17)
         }
-        return Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 0.82 : 0.56)
+        if isActive {
+            return isHovering
+                ? Color(red: 1.0, green: 0.945, blue: 0.895)
+                : Color(red: 1.0, green: 0.965, blue: 0.93)
+        }
+        return isHovering
+            ? Color(red: 0.94, green: 0.945, blue: 0.955)
+            : .white
     }
 
     private var shouldShowFiveHourUsage: Bool {
         showsFiveHourUsage && account.supportsFiveHourUsage
     }
 
-    private var planForeground: Color {
+    private var activeTagPalette: TagPalette {
+        colorScheme == .dark
+            ? TagPalette(
+                foreground: Color(red: 0.84, green: 1.0, blue: 0.90),
+                background: Color(red: 0.12, green: 0.34, blue: 0.22)
+            )
+            : TagPalette(
+                foreground: Color(red: 0.05, green: 0.34, blue: 0.16),
+                background: Color(red: 0.80, green: 0.94, blue: 0.85)
+            )
+    }
+
+    private var planPalette: TagPalette {
+        let isDark = colorScheme == .dark
         switch account.planType?.lowercased() {
-        case "plus": Color.orange
-        case "team": Color.blue
-        case "prolite": Color.purple
-        case "pro": Color.pink
-        default: Color.secondary
+        case "plus":
+            return isDark
+                ? TagPalette(foreground: Color(red: 1.0, green: 0.85, blue: 0.77), background: Color(red: 0.42, green: 0.17, blue: 0.08))
+                : TagPalette(foreground: Color(red: 0.57, green: 0.20, blue: 0.05), background: Color(red: 1.0, green: 0.87, blue: 0.79))
+        case "team":
+            return isDark
+                ? TagPalette(foreground: Color(red: 0.82, green: 0.91, blue: 1.0), background: Color(red: 0.13, green: 0.29, blue: 0.47))
+                : TagPalette(foreground: Color(red: 0.11, green: 0.32, blue: 0.57), background: Color(red: 0.84, green: 0.91, blue: 1.0))
+        case "prolite":
+            return isDark
+                ? TagPalette(foreground: Color(red: 0.92, green: 0.87, blue: 1.0), background: Color(red: 0.29, green: 0.18, blue: 0.49))
+                : TagPalette(foreground: Color(red: 0.34, green: 0.18, blue: 0.57), background: Color(red: 0.90, green: 0.85, blue: 0.98))
+        case "pro":
+            return isDark
+                ? TagPalette(foreground: Color(red: 1.0, green: 0.86, blue: 0.92), background: Color(red: 0.43, green: 0.17, blue: 0.28))
+                : TagPalette(foreground: Color(red: 0.53, green: 0.17, blue: 0.32), background: Color(red: 0.97, green: 0.85, blue: 0.90))
+        default:
+            return isDark
+                ? TagPalette(foreground: Color(red: 0.94, green: 0.95, blue: 0.93), background: Color(red: 0.27, green: 0.29, blue: 0.27))
+                : TagPalette(foreground: Color(red: 0.26, green: 0.29, blue: 0.26), background: Color(red: 0.88, green: 0.90, blue: 0.87))
         }
     }
 
+    private var planForeground: Color {
+        planPalette.foreground
+    }
+
     private var planBackground: Color {
-        planForeground.opacity(0.12)
+        planPalette.background
     }
 
     private func resetText(for resetsAt: Date) -> String {
@@ -235,12 +282,17 @@ private struct StatusTag: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 9.5, weight: .bold))
+            .font(.system(size: 10, weight: .bold))
             .foregroundStyle(foreground)
             .padding(.horizontal, 7)
-            .frame(height: 19)
+            .frame(height: 20)
             .background(background, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
+}
+
+private struct TagPalette {
+    let foreground: Color
+    let background: Color
 }
 
 private struct UsageBar: View {
