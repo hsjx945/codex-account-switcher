@@ -1,5 +1,8 @@
 # System design
 
+> Tiny fork note (2026-09-04): the transaction and recovery sections in
+> [the accepted dated plan](plans/2026-09-04-tiny-codex-switcher.md) supersede this upstream MVP design.
+
 ## 1. Overview
 
 Codex Account Switcher is a native macOS menu-bar application that manages multiple local Codex authentication snapshots.

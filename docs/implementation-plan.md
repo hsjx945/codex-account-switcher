@@ -1,5 +1,8 @@
 # Implementation plan
 
+> Tiny fork note (2026-09-04): this upstream MVP plan is retained as baseline history.
+> [The accepted Tiny plan](plans/2026-09-04-tiny-codex-switcher.md) supersedes its rollback and recovery exclusions.
+
 ## 1. Delivery strategy
 
 Build the smallest native macOS app that can complete one real A → B account switch. Add Usage and account-management polish only after that path works.

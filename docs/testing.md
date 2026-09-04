@@ -1,5 +1,8 @@
 # Testing
 
+> Tiny fork note (2026-09-04): recovery and fault-injection acceptance is defined by
+> [the accepted Tiny plan](plans/2026-09-04-tiny-codex-switcher.md). The upstream no-journal statements below are historical.
+
 ## 1. Philosophy
 
 The MVP test suite should prove two things:

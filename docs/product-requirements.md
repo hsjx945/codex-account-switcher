@@ -1,5 +1,8 @@
 # Product requirements
 
+> Tiny fork note (2026-09-04): [the accepted Tiny plan](plans/2026-09-04-tiny-codex-switcher.md)
+> supersedes conflicting upstream MVP requirements.
+
 ## 1. Goal
 
 Allow an ordinary Mac user with multiple authorized ChatGPT accounts to add them through browser sign-in and choose which account Codex Desktop uses from the menu bar, without Terminal commands or config-file editing.

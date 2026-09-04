@@ -108,15 +108,16 @@ Comparisons with other account switchers are welcome. Please describe the workfl
 - Each saved profile contains a complete, reusable `auth.json` credential snapshot. The app stores profile directories with mode `0700`, credential files with mode `0600`, and replaces credential files atomically through a same-directory temporary file and rename.
 - Local file permissions define the current security boundary. User backups, filesystem snapshots, cloud backup tools, endpoint software, and other processes with access to the user's files may copy the saved credential snapshots.
 - Removing an account performs ordinary filesystem deletion. The app makes no secure-erasure guarantee for SSD storage, APFS snapshots, or backups.
-- The current release uses file-backed credential storage and does not store profile credentials in macOS Keychain.
+- Saved profiles remain file-backed. A switch creates a short-lived encrypted rollback snapshot; its encryption key is stored in macOS Keychain and the snapshot is deleted after a verified completion.
 - The product runs without its own account proxy, traffic router, or cloud account service.
 - Every account is selected and confirmed by the user; the app does not rotate accounts automatically.
 - The project is independent open-source software and is not affiliated with or endorsed by OpenAI.
 - The current account appears through a row highlight inside the popover.
 - Persisted 5-hour and weekly usage remains visible while fresh data loads; the 5-hour row appears only when enabled and the service provides an exact 300-minute window.
-- Every switch stops immediately on the first reported error.
-- If target verification or the registry commit fails after credential activation, the app restores the just-saved original profile credential while preserving the original error. A restoration error is reported alongside it.
-- General rollback state machines, retries, credential backup files, recovery journals, startup recovery, and policy-based routing stay outside the product scope.
+- Account operations are serialized so usage refresh, login, removal, and switching cannot mutate the same profile concurrently.
+- Every switch is journaled before the active credential changes. It either completes with a verified target identity or restores the exact encrypted original credential and verifies the original identity.
+- An interrupted switch is recovered at the next launch. A committed target is preserved; an earlier phase rolls back and restores the prior Desktop running state.
+- Automatic account rotation, policy-based routing, remote control, telemetry, and cloud credential storage stay outside the product scope.
 
 ## Release status
 

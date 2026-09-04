@@ -1,5 +1,8 @@
 # Product decisions
 
+> Tiny fork note (2026-09-04): [the Tiny decision ledger](decisions/2026-09-04-tiny-codex-switcher-ledger.md)
+> supersedes conflicting upstream MVP decisions.
+
 ## 1. Product principle
 
 Codex Account Switcher is a simple switcher. Every persistent control must directly support one of four jobs:
