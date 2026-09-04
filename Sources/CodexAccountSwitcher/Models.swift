@@ -78,6 +78,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     var automaticWarmupEnabled: Bool
     var warmupHour: Int
     var warmupMinute: Int
+    var fiveHourResetNotificationsEnabled: Bool
 
     static let `default` = AppSettings(
         language: .system,
@@ -87,7 +88,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         showsTokenActivity: true,
         automaticWarmupEnabled: false,
         warmupHour: 8,
-        warmupMinute: 30
+        warmupMinute: 30,
+        fiveHourResetNotificationsEnabled: false
     )
 
     init(
@@ -98,7 +100,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         showsTokenActivity: Bool = true,
         automaticWarmupEnabled: Bool = false,
         warmupHour: Int = 8,
-        warmupMinute: Int = 30
+        warmupMinute: Int = 30,
+        fiveHourResetNotificationsEnabled: Bool = false
     ) {
         self.language = language
         self.showsMenuBarPercentage = showsMenuBarPercentage
@@ -108,6 +111,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         self.automaticWarmupEnabled = automaticWarmupEnabled
         self.warmupHour = min(max(warmupHour, 0), 23)
         self.warmupMinute = min(max(warmupMinute, 0), 59)
+        self.fiveHourResetNotificationsEnabled = fiveHourResetNotificationsEnabled
     }
 
     init(from decoder: any Decoder) throws {
@@ -135,6 +139,10 @@ struct AppSettings: Codable, Equatable, Sendable {
         ) ?? false
         warmupHour = min(max(try container.decodeIfPresent(Int.self, forKey: .warmupHour) ?? 8, 0), 23)
         warmupMinute = min(max(try container.decodeIfPresent(Int.self, forKey: .warmupMinute) ?? 30, 0), 59)
+        fiveHourResetNotificationsEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .fiveHourResetNotificationsEnabled
+        ) ?? false
     }
 }
 
@@ -198,17 +206,84 @@ struct UsageCacheEntry: Codable, Equatable, Sendable {
     let usage: WeeklyUsage
     let fetchedAt: Date
     var tokenActivity: TokenActivity?
+    var lastNotifiedFiveHourResetAt: Date?
 
     init(
         profileID: UUID,
         usage: WeeklyUsage,
         fetchedAt: Date,
-        tokenActivity: TokenActivity? = nil
+        tokenActivity: TokenActivity? = nil,
+        lastNotifiedFiveHourResetAt: Date? = nil
     ) {
         self.profileID = profileID
         self.usage = usage
         self.fetchedAt = fetchedAt
         self.tokenActivity = tokenActivity
+        self.lastNotifiedFiveHourResetAt = lastNotifiedFiveHourResetAt
+    }
+}
+
+enum DesktopTaskState: Equatable, Sendable {
+    case idle
+    case active(count: Int)
+    case unknown
+}
+
+enum NotificationSwitchDisposition: Equatable, Sendable {
+    case noAction
+    case direct
+    case confirmActive(count: Int)
+    case confirmUnknown
+    case operationInProgress
+}
+
+enum NotificationSwitchPolicy {
+    static func disposition(
+        targetID: UUID,
+        activeID: UUID?,
+        isMutating: Bool,
+        taskState: DesktopTaskState
+    ) -> NotificationSwitchDisposition {
+        guard targetID != activeID else { return .noAction }
+        guard !isMutating else { return .operationInProgress }
+        switch taskState {
+        case .idle:
+            return .direct
+        case let .active(count):
+            return .confirmActive(count: max(count, 1))
+        case .unknown:
+            return .confirmUnknown
+        }
+    }
+}
+
+enum DesktopTaskSafetyPolicy {
+    static func effectiveState(
+        desktopIsRunning: Bool,
+        independentlyObservedState: DesktopTaskState?
+    ) -> DesktopTaskState {
+        guard desktopIsRunning else { return .idle }
+        if case let .active(count)? = independentlyObservedState {
+            return .active(count: max(count, 1))
+        }
+        return .unknown
+    }
+}
+
+enum FiveHourResetDetector {
+    static func resetToNotify(
+        previousUsage: WeeklyUsage?,
+        currentUsage: WeeklyUsage,
+        lastNotifiedResetAt: Date?,
+        now: Date
+    ) -> Date? {
+        guard let previousResetAt = previousUsage?.fiveHourResetsAt,
+              let currentResetAt = currentUsage.fiveHourResetsAt,
+              previousResetAt <= now,
+              currentResetAt > previousResetAt,
+              lastNotifiedResetAt.map({ $0 >= previousResetAt }) != true
+        else { return nil }
+        return previousResetAt
     }
 }
 

@@ -199,6 +199,22 @@ private actor CoreConcurrencyProbe {
     func maximumConcurrency() -> Int { maximum }
 }
 
+private actor CoreNotificationService: QuotaNotificationServicing {
+    private var authorizationRequests = 0
+    func requestAuthorization() async throws -> Bool {
+        authorizationRequests += 1
+        return true
+    }
+    func sendFiveHourResetNotification(
+        profileID: UUID,
+        accountLabel: String,
+        title: String,
+        body: String,
+        resetAt: Date
+    ) async throws {}
+    func requestCount() -> Int { authorizationRequests }
+}
+
 private func createExecutable(at url: URL, body: String) throws {
     try Data("#!/bin/sh\n\(body)\n".utf8).write(to: url)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
@@ -340,6 +356,13 @@ struct CoreChecks {
         )
         let usageCachePermissions = try permissions(support.appending(path: "usage-cache.json"))
         try require(usageCachePermissions == 0o600, "weekly usage cache permissions")
+        let notifiedResetAt = Date(timeIntervalSince1970: 1_749_500_000)
+        try await store.markFiveHourResetNotified(profileID: first.id, resetAt: notifiedResetAt)
+        let cacheAfterNotification = try await store.loadUsageCache()
+        try require(
+            cacheAfterNotification.entries.first?.lastNotifiedFiveHourResetAt == notifiedResetAt,
+            "five-hour reset notification dedupe persistence"
+        )
 
         let legacyCacheData = Data("""
         {"entries":[{"profileID":"\(first.id.uuidString)","usage":{"remainingPercent":73,"resetsAt":"2025-06-15T15:06:40Z"},"fetchedAt":"2025-06-04T01:20:00Z"}]}
@@ -375,6 +398,37 @@ struct CoreChecks {
         try require(
             !legacySettings.automaticWarmupEnabled,
             "legacy settings keep scheduled warmup disabled"
+        )
+        try require(
+            !legacySettings.fiveHourResetNotificationsEnabled,
+            "legacy settings keep reset notifications disabled"
+        )
+        let directTarget = UUID()
+        let currentTarget = UUID()
+        try require(
+            NotificationSwitchPolicy.disposition(
+                targetID: directTarget,
+                activeID: currentTarget,
+                isMutating: false,
+                taskState: .idle
+            ) == .direct,
+            "notification switch permits only confirmed idle direct switching"
+        )
+        try require(
+            NotificationSwitchPolicy.disposition(
+                targetID: directTarget,
+                activeID: currentTarget,
+                isMutating: false,
+                taskState: .unknown
+            ) == .confirmUnknown,
+            "unknown task state requires confirmation"
+        )
+        try require(
+            DesktopTaskSafetyPolicy.effectiveState(
+                desktopIsRunning: true,
+                independentlyObservedState: .idle
+            ) == .unknown,
+            "an independent idle result cannot prove running Desktop is idle"
         )
         let hiddenPercentageSettings = AppSettings(
             language: .simplifiedChinese,
@@ -570,6 +624,7 @@ struct CoreChecks {
               printf '%s\\n' '{"id":1,"result":{"rateLimits":{"primary":{"usedPercent":80,"windowDurationMins":300,"resetsAt":100},"secondary":{"usedPercent":58,"windowDurationMins":10080,"resetsAt":1750000000}}}}'
               ;;
             *usage*read*) printf '%s\\n' '{"id":1,"result":{"dailyUsageBuckets":[{"startDate":"2026-09-04","tokens":2300}]}}' ;;
+            *thread*list*) printf '%s\\n' '{"id":1,"result":{"data":[{"status":{"type":"active","activeFlags":["waitingOnTool"]}}],"nextCursor":null}}' ;;
             *account*read*)
               test "$state" -eq 2 || exit 13
               printf '%s\\n' '{"id":1,"result":{"account":{"type":"chatgpt","email":"user@example.com","accountId":"acct-123"},"requiresOpenaiAuth":true}}'
@@ -590,6 +645,11 @@ struct CoreChecks {
                 DailyTokenUsage(startDate: "2026-09-04", tokens: 2300),
             ],
             "JSONL official daily token buckets"
+        )
+        let rpcTaskState = try await client.readDesktopTaskState(profileHome: root)
+        try require(
+            rpcTaskState == .active(count: 1),
+            "official thread status blocks direct notification switching"
         )
 
         let nullUsageCodex = root.appending(path: "null-usage-codex")
@@ -691,14 +751,34 @@ struct CoreChecks {
             try require(error == .timeout, "stalled warmup timeout")
         }
 
+        let notificationService = CoreNotificationService()
         let appModel = AppModel(
             store: store,
             codex: client,
             switchService: ReopenFailureSwitchService(store: store),
             operationGate: AccountOperationGate(),
-            localSessionScanner: LocalSessionUsageScanner(codexHome: root)
+            localSessionScanner: LocalSessionUsageScanner(codexHome: root),
+            notificationService: notificationService
         )
-        await appModel.start()
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<3 {
+                group.addTask { await appModel.start() }
+            }
+        }
+        try require(
+            !appModel.accounts.isEmpty,
+            "concurrent startup callers await one completed initialization"
+        )
+        await appModel.setFiveHourResetNotificationsEnabled(true)
+        try require(
+            appModel.settings.fiveHourResetNotificationsEnabled,
+            "authorized reset reminders can be enabled"
+        )
+        let notificationAuthorizationRequestCount = await notificationService.requestCount()
+        try require(
+            notificationAuthorizationRequestCount == 1,
+            "notification authorization is requested on enable"
+        )
         try require(
             appModel.usageStates[first.id] == .loaded(cachedWeekly),
             "cached usage is visible at startup"

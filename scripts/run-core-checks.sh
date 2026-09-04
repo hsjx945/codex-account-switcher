@@ -15,6 +15,7 @@ swiftc \
   "$project_dir/Sources/CodexAccountSwitcher/SwitchService.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/DesktopController.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/CodexClient.swift" \
+  "$project_dir/Sources/CodexAccountSwitcher/QuotaNotificationService.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/Localization.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/AppModel.swift" \
   "$project_dir/Checks/CoreChecks.swift" \
@@ -22,6 +23,7 @@ swiftc \
   -framework CryptoKit \
   -framework Security \
   -framework SwiftUI \
+  -framework UserNotifications \
   -o "$output_dir/CoreChecks"
 
 "$output_dir/CoreChecks"

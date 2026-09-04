@@ -366,12 +366,16 @@ protocol WarmupServicing: Sendable {
     func warmup(profileHome: URL) async throws -> String
 }
 
+protocol DesktopTaskStateReading: Sendable {
+    func readDesktopTaskState(profileHome: URL) async throws -> DesktopTaskState
+}
+
 protocol LoginServicing: Sendable {
     func login(profileHome: URL) async throws -> AccountIdentity
 }
 
 struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReading, LoginServicing,
-    WarmupServicing
+    WarmupServicing, DesktopTaskStateReading
 {
     let locator: CodexExecutableLocator
     let requestTimeout: Duration
@@ -427,6 +431,76 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReadi
             modelBreakdown: [],
             localModelCoverageStartedAt: nil
         )
+    }
+
+    func readDesktopTaskState(profileHome: URL) async throws -> DesktopTaskState {
+        try await withSession(profileHome: profileHome) { session in
+            var cursor: String?
+            var requestID = 1
+            var activeCount = 0
+            var sawNotLoaded = false
+
+            for _ in 0..<20 {
+                let result: JSONValue
+                if let cursor {
+                    result = try await session.request(
+                        method: "thread/list",
+                        id: requestID,
+                        params: [
+                            "limit": 100,
+                            "sortKey": "recency_at",
+                            "sortDirection": "desc",
+                            "archived": false,
+                            "cursor": cursor,
+                        ],
+                        timeout: requestTimeout
+                    )
+                } else {
+                    result = try await session.request(
+                        method: "thread/list",
+                        id: requestID,
+                        params: [
+                            "limit": 100,
+                            "sortKey": "recency_at",
+                            "sortDirection": "desc",
+                            "archived": false,
+                        ],
+                        timeout: requestTimeout
+                    )
+                }
+                requestID += 1
+                guard let threads = result["data"]?.arrayValue else { return .unknown }
+                for thread in threads {
+                    guard let status = thread["status"]?["type"]?.stringValue else { return .unknown }
+                    switch status {
+                    case "active":
+                        activeCount += 1
+                    case "idle":
+                        break
+                    case "notLoaded":
+                        sawNotLoaded = true
+                    case "systemError":
+                        return .unknown
+                    default:
+                        return .unknown
+                    }
+                }
+                guard let nextCursor = result["nextCursor"] else {
+                    if activeCount > 0 { return .active(count: activeCount) }
+                    return sawNotLoaded ? .unknown : .idle
+                }
+                switch nextCursor {
+                case .null:
+                    if activeCount > 0 { return .active(count: activeCount) }
+                    return sawNotLoaded ? .unknown : .idle
+                case let .string(value) where !value.isEmpty:
+                    cursor = value
+                default:
+                    return .unknown
+                }
+            }
+            return .unknown
+        }
     }
 
     func warmup(profileHome: URL) async throws -> String {

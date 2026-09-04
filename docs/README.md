@@ -15,7 +15,9 @@ This directory defines the MVP for Codex Account Switcher.
 | [Implementation plan](implementation-plan.md) | Concrete milestones and suggested source layout |
 | [Testing](testing.md) | Small, failure-oriented MVP test plan |
 | [Milestone 2 report](testing/2026-09-04-milestone-2-report.md) | Token, warmup, package, and runtime evidence |
+| [Milestone 3 report](testing/2026-09-04-milestone-3-report.md) | Reset reminder, safe action, package, and runtime evidence |
 | [Token, warmup, and Claude research](research/2026-09-04-usage-warmup-claude.md) | Pinned sources, data semantics, and provider recommendation |
+| [Reset notifications and safe switching research](research/2026-09-04-five-hour-reset-notifications.md) | Native notification, dedupe, task-state, and Claude-provider findings |
 
 ## Product definition
 

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ServiceManagement
 import SwiftUI
@@ -51,27 +52,38 @@ final class AppModel: ObservableObject {
     private let store: AccountStore
     private let codex: CodexClient
     private let switchService: any SwitchServicing
+    private let desktop: any DesktopControlling
+    private let taskStateReader: any DesktopTaskStateReading
+    private let notificationService: any QuotaNotificationServicing
     private let operationGate: AccountOperationGate
     private let localSessionScanner: LocalSessionUsageScanner
     private var hasStarted = false
+    private var startTask: Task<Void, Never>?
     private var usageRefreshTask: Task<Void, Never>?
     private var nextUsageRefreshTask: Task<Void, Never>?
     private var addAccountTask: Task<Void, Never>?
     private var backgroundUsageRefreshInterval: Duration = .seconds(300)
     private var isBackgroundUsageRefreshEnabled = false
+    private var lastNotifiedFiveHourResetAt: [UUID: Date] = [:]
 
     init(
         store: AccountStore,
         codex: CodexClient,
         switchService: any SwitchServicing,
         operationGate: AccountOperationGate,
-        localSessionScanner: LocalSessionUsageScanner = .init()
+        localSessionScanner: LocalSessionUsageScanner = .init(),
+        desktop: any DesktopControlling = DesktopController(),
+        taskStateReader: (any DesktopTaskStateReading)? = nil,
+        notificationService: any QuotaNotificationServicing = InertQuotaNotificationService()
     ) {
         self.store = store
         self.codex = codex
         self.switchService = switchService
         self.operationGate = operationGate
         self.localSessionScanner = localSessionScanner
+        self.desktop = desktop
+        self.taskStateReader = taskStateReader ?? codex
+        self.notificationService = notificationService
     }
 
     static func live() -> AppModel {
@@ -79,17 +91,20 @@ final class AppModel: ObservableObject {
         let codex = CodexClient()
         let operationGate = AccountOperationGate()
         let recovery = SwitchRecoveryStore()
+        let desktop = DesktopController()
         return AppModel(
             store: store,
             codex: codex,
             switchService: SwitchCoordinator(
-                desktop: DesktopController(),
+                desktop: desktop,
                 store: store,
                 codex: codex,
                 recovery: recovery,
                 operationGate: operationGate
             ),
-            operationGate: operationGate
+            operationGate: operationGate,
+            desktop: desktop,
+            notificationService: QuotaNotificationService()
         )
     }
 
@@ -127,6 +142,19 @@ final class AppModel: ObservableObject {
     }
 
     func start() async {
+        if let startTask {
+            await startTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performStart()
+        }
+        startTask = task
+        await task.value
+    }
+
+    private func performStart() async {
         guard !hasStarted else { return }
         hasStarted = true
         refreshLaunchAtLoginStatus()
@@ -244,6 +272,7 @@ final class AppModel: ObservableObject {
                 switch result {
                 case let .success(id, usage, activity):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
+                    let previousUsage = usageStates[id]?.displayedUsage
                     usageStates[id] = .loaded(usage)
                     do {
                         try await store.cacheWeeklyUsage(usage, profileID: id)
@@ -251,6 +280,11 @@ final class AppModel: ObservableObject {
                             tokenActivities[id] = activity
                             try await store.cacheTokenActivity(activity, profileID: id)
                         }
+                        await notifyIfFiveHourResetReached(
+                            profileID: id,
+                            previousUsage: previousUsage,
+                            currentUsage: usage
+                        )
                     } catch {
                         showError(error)
                     }
@@ -496,6 +530,30 @@ final class AppModel: ObservableObject {
         if enabled { refreshWeeklyUsage() }
     }
 
+    func setFiveHourResetNotificationsEnabled(_ enabled: Bool) async {
+        if !enabled {
+            settings.fiveHourResetNotificationsEnabled = false
+            await persistSettings()
+            return
+        }
+        do {
+            guard try await notificationService.requestAuthorization() else {
+                showError(LocalizedAppError(message: text("notification_permission_denied")))
+                return
+            }
+            let now = Date()
+            for (id, state) in usageStates {
+                guard let resetAt = state.displayedUsage?.fiveHourResetsAt, resetAt <= now else { continue }
+                lastNotifiedFiveHourResetAt[id] = resetAt
+                try await store.markFiveHourResetNotified(profileID: id, resetAt: resetAt)
+            }
+            settings.fiveHourResetNotificationsEnabled = true
+            await persistSettings()
+        } catch {
+            showError(error)
+        }
+    }
+
     func setWarmupTime(_ date: Date) async {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
         settings.warmupHour = components.hour ?? 8
@@ -553,6 +611,9 @@ final class AppModel: ObservableObject {
         usageStates = usageStates.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         tokenActivities = tokenActivities.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         warmupStatuses = warmupStatuses.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
+        lastNotifiedFiveHourResetAt = lastNotifiedFiveHourResetAt.filter {
+            id, _ in registry.accounts.contains(where: { $0.id == id })
+        }
     }
 
     private func apply(_ cache: UsageCache) {
@@ -562,7 +623,112 @@ final class AppModel: ObservableObject {
             if let activity = entry.tokenActivity {
                 tokenActivities[entry.profileID] = activity
             }
+            if let resetAt = entry.lastNotifiedFiveHourResetAt {
+                lastNotifiedFiveHourResetAt[entry.profileID] = resetAt
+            }
         }
+    }
+
+    func handleNotificationSwitchRequest(profileID: UUID) async {
+        await start()
+        guard accounts.contains(where: { $0.id == profileID }) else { return }
+
+        let taskState: DesktopTaskState
+        if await desktop.isDesktopRunning() {
+            do {
+                let activeHome = await store.activeCodexHome()
+                let observed = try await operationGate.run { [taskStateReader] in
+                    try await taskStateReader.readDesktopTaskState(profileHome: activeHome)
+                }
+                taskState = DesktopTaskSafetyPolicy.effectiveState(
+                    desktopIsRunning: true,
+                    independentlyObservedState: observed
+                )
+            } catch {
+                taskState = .unknown
+            }
+        } else {
+            taskState = DesktopTaskSafetyPolicy.effectiveState(
+                desktopIsRunning: false,
+                independentlyObservedState: nil
+            )
+        }
+
+        switch NotificationSwitchPolicy.disposition(
+            targetID: profileID,
+            activeID: activeAccountID,
+            isMutating: isMutating,
+            taskState: taskState
+        ) {
+        case .noAction:
+            return
+        case .direct:
+            await switchAccount(to: profileID)
+        case let .confirmActive(count):
+            if confirmNotificationSwitch(
+                title: text("task_switch_active_title"),
+                body: format("task_switch_active_body", String(count))
+            ) {
+                await switchAccount(to: profileID)
+            }
+        case .confirmUnknown:
+            if confirmNotificationSwitch(
+                title: text("task_switch_unknown_title"),
+                body: text("task_switch_unknown_body")
+            ) {
+                await switchAccount(to: profileID)
+            }
+        case .operationInProgress:
+            showError(LocalizedAppError(message: text("switch_in_progress")))
+        }
+    }
+
+    private func notifyIfFiveHourResetReached(
+        profileID: UUID,
+        previousUsage: WeeklyUsage?,
+        currentUsage: WeeklyUsage
+    ) async {
+        guard settings.fiveHourResetNotificationsEnabled,
+              let resetAt = FiveHourResetDetector.resetToNotify(
+                previousUsage: previousUsage,
+                currentUsage: currentUsage,
+                lastNotifiedResetAt: lastNotifiedFiveHourResetAt[profileID],
+                now: Date()
+              ),
+              let account = accounts.first(where: { $0.id == profileID })
+        else { return }
+
+        let label = account.primaryLabel(style: settings.accountNameStyle)
+        let previousNotifiedResetAt = lastNotifiedFiveHourResetAt[profileID]
+        do {
+            lastNotifiedFiveHourResetAt[profileID] = resetAt
+            try await store.markFiveHourResetNotified(profileID: profileID, resetAt: resetAt)
+            try await notificationService.sendFiveHourResetNotification(
+                profileID: profileID,
+                accountLabel: label,
+                title: text("five_hour_reset_notification_title"),
+                body: format("five_hour_reset_notification_body", label),
+                resetAt: resetAt
+            )
+        } catch {
+            lastNotifiedFiveHourResetAt[profileID] = previousNotifiedResetAt
+            try? await store.markFiveHourResetNotified(
+                profileID: profileID,
+                resetAt: previousNotifiedResetAt
+            )
+            showError(error)
+        }
+    }
+
+    private func confirmNotificationSwitch(title: String, body: String) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = body
+        alert.addButton(withTitle: text("switch_anyway"))
+        alert.addButton(withTitle: text("cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func confirmActiveIdentity() async {
@@ -599,4 +765,9 @@ final class AppModel: ObservableObject {
             components.day ?? 0
         )
     }
+}
+
+private struct LocalizedAppError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }

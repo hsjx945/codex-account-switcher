@@ -37,8 +37,18 @@ struct AccountRow: View {
                     Spacer(minLength: 4)
                     if isActive {
                         Text(L10n.string("active", language: language))
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Color.primary.opacity(0.72))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Color(red: 0.38, green: 0.43, blue: 0.49).opacity(0.14),
+                                in: Capsule()
+                            )
+                            .overlay {
+                                Capsule()
+                                    .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
+                            }
                     }
                     if let usage = usageState.displayedUsage, !showsFiveHourUsage {
                         Text(resetText(for: usage))

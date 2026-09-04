@@ -88,6 +88,7 @@ The current public build targets **Apple Silicon** and requires **macOS 14 or la
 | **Usage at a glance** | Check weekly allowance by default, or enable the exact 300-minute (5-hour) service window and reset time in Settings. The optional row is off by default. |
 | **Email and nicknames** | Show the full sign-in email by default, set an optional nickname, and choose email, nickname, or both. |
 | **Token and model activity** | Show per-account server totals for today, 7 days, and 30 days; keep local model detail separate across all account sessions on this Mac. |
+| **Reset reminders** | Optionally notify after the official 5-hour window advances, with a Switch action that requires confirmation whenever a running task is found or task state is unknown. |
 | **Experimental warmup** | Off by default; when explicitly enabled, send one minimal real request with an available small model at the chosen time and skip active 5-hour windows. |
 | **Small native Mac app** | Install an Apple-notarized DMG and use a compact SwiftUI interface in English or Simplified Chinese. |
 
@@ -115,8 +116,8 @@ Comparisons with other account switchers are welcome. Please describe the workfl
 - The product runs without its own account proxy, traffic router, or cloud account service.
 - Every account is selected and confirmed by the user; the app does not rotate accounts automatically.
 - The project is independent open-source software and is not affiliated with or endorsed by OpenAI.
-- The current account appears through a row highlight inside the popover.
-- The current account is sorted first and uses a low-saturation background.
+- The current account is sorted first and uses a low-saturation background plus an explicit Active badge.
+- Reset reminders are off by default. Their action routes only by local profile UUID; an active or unknown task state never switches silently.
 - Warmup is a real request that consumes a small amount of usage. It is an experimental community practice; the project does not promise that OpenAI will start or refresh a 5-hour window.
 - Persisted 5-hour and weekly usage remains visible while fresh data loads; the 5-hour row appears only when enabled and the service provides an exact 300-minute window.
 - Account operations are serialized so usage refresh, login, removal, and switching cannot mutate the same profile concurrently.

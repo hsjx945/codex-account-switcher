@@ -80,6 +80,63 @@ struct CodexClientTests {
         ])
     }
 
+    @Test func reportsActiveDesktopTasksFromOfficialThreadStatus() async throws {
+        let fixture = try ScriptFixture(body: """
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
+            *thread*list*) printf '%s\n' '{"id":1,"result":{"data":[{"status":{"type":"active","activeFlags":["waitingOnTool"]}},{"status":{"type":"idle"}}],"nextCursor":null}}' ;;
+          esac
+        done
+        """)
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+
+        #expect(try await client.readDesktopTaskState(profileHome: fixture.root) == .active(count: 1))
+    }
+
+    @Test func reportsIdleOnlyAfterACompleteThreadList() async throws {
+        let fixture = try ScriptFixture(body: """
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
+            *thread*list*) printf '%s\n' '{"id":1,"result":{"data":[{"status":{"type":"idle"}},{"status":{"type":"notLoaded"}}],"nextCursor":null}}' ;;
+          esac
+        done
+        """)
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+
+        #expect(try await client.readDesktopTaskState(profileHome: fixture.root) == .unknown)
+    }
+
+    @Test func failsClosedForUnknownThreadStatus() async throws {
+        let fixture = try ScriptFixture(body: """
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\n' '{"id":0,"result":{}}' ;;
+            *thread*list*) printf '%s\n' '{"id":1,"result":{"data":[{"status":{"type":"systemError"}}],"nextCursor":null}}' ;;
+          esac
+        done
+        """)
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+
+        #expect(try await client.readDesktopTaskState(profileHome: fixture.root) == .unknown)
+    }
+
     @Test func doesNotTurnUnavailableDailyBucketsIntoZeroUsage() async throws {
         let fixture = try ScriptFixture(body: """
         while IFS= read -r line; do

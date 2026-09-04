@@ -124,18 +124,26 @@ actor AccountStore: AccountStoring {
         let registry = try loadRegistry()
         guard registry.accounts.contains(where: { $0.id == profileID }) else { return }
         var cache = try loadUsageCache()
-        let existingActivity = cache.entries.first(where: { $0.profileID == profileID })?.tokenActivity
+        let existing = cache.entries.first(where: { $0.profileID == profileID })
         let entry = UsageCacheEntry(
             profileID: profileID,
             usage: usage,
             fetchedAt: fetchedAt,
-            tokenActivity: existingActivity
+            tokenActivity: existing?.tokenActivity,
+            lastNotifiedFiveHourResetAt: existing?.lastNotifiedFiveHourResetAt
         )
         if let index = cache.entries.firstIndex(where: { $0.profileID == profileID }) {
             cache.entries[index] = entry
         } else {
             cache.entries.append(entry)
         }
+        try saveUsageCache(cache)
+    }
+
+    func markFiveHourResetNotified(profileID: UUID, resetAt: Date?) throws {
+        var cache = try loadUsageCache()
+        guard let index = cache.entries.firstIndex(where: { $0.profileID == profileID }) else { return }
+        cache.entries[index].lastNotifiedFiveHourResetAt = resetAt
         try saveUsageCache(cache)
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct SwitcherApp: App {
+    @NSApplicationDelegateAdaptor(SwitcherAppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel.live()
 
     var body: some Scene {
@@ -20,6 +21,10 @@ struct SwitcherApp: App {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(menuBarAccessibilityLabel)
                 .task {
+                    await model.start()
+                    appDelegate.bindSwitchHandler { [weak model] profileID in
+                        await model?.handleNotificationSwitchRequest(profileID: profileID)
+                    }
                     await model.startBackgroundUsageRefresh()
                 }
         }

@@ -14,7 +14,8 @@ struct SettingsView: View {
 
             Divider()
 
-            VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(model.text("launch_at_login"))
@@ -130,6 +131,33 @@ struct SettingsView: View {
                 Divider()
                     .padding(.leading, 14)
 
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(model.text("five_hour_reset_notifications"))
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { model.settings.fiveHourResetNotificationsEnabled },
+                            set: { enabled in
+                                Task { await model.setFiveHourResetNotificationsEnabled(enabled) }
+                            }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .fixedSize()
+                        .accessibilityLabel(Text(model.text("five_hour_reset_notifications")))
+                    }
+                    Text(model.text("five_hour_reset_notifications_hint"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .frame(minHeight: 44)
+
+                Divider()
+                    .padding(.leading, 14)
+
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Text(model.text("automatic_warmup"))
@@ -193,7 +221,9 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 44)
+                }
             }
+            .frame(maxHeight: 520)
         }
         .onAppear {
             model.refreshLaunchAtLoginStatus()
