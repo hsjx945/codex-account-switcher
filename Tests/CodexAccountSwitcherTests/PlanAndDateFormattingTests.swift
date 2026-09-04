@@ -3,11 +3,13 @@ import Testing
 @testable import CodexAccountSwitcher
 
 struct PlanAndDateFormattingTests {
-    @Test func showsBadgesOnlyForKnownPlusAndProPlans() {
+    @Test func showsBadgesOnlyForKnownSubscriptionPlans() {
         let arguments = [
-            (planType: "plus", badge: "PLUS"),
-            (planType: "pro", badge: "PRO 20X"),
-            (planType: "prolite", badge: "PRO 5X"),
+            (planType: "free", badge: "Free"),
+            (planType: "plus", badge: "Plus"),
+            (planType: "team", badge: "Team"),
+            (planType: "pro", badge: "Pro 20x"),
+            (planType: "prolite", badge: "Pro 5x"),
             (planType: "future_plan", badge: nil),
             (planType: nil, badge: nil),
         ]
@@ -25,6 +27,38 @@ struct PlanAndDateFormattingTests {
             #expect(profile.subscriptionBadge == argument.badge, "plan type: \(String(describing: argument.planType))")
             #expect(profile.supportsFiveHourUsage == !["pro", "prolite"].contains(argument.planType))
         }
+    }
+
+    @Test func preferredLabelUsesNicknameThenEmailThenDisplayName() {
+        let id = UUID()
+        let createdAt = Date(timeIntervalSince1970: 1)
+        let nickname = AccountProfile(
+            id: id,
+            displayName: "Display",
+            nickname: "Work",
+            email: "work@example.com",
+            accountID: nil,
+            createdAt: createdAt
+        )
+        let email = AccountProfile(
+            id: id,
+            displayName: "Display",
+            nickname: "  ",
+            email: "work@example.com",
+            accountID: nil,
+            createdAt: createdAt
+        )
+        let displayName = AccountProfile(
+            id: id,
+            displayName: "Display",
+            email: nil,
+            accountID: nil,
+            createdAt: createdAt
+        )
+
+        #expect(nickname.preferredLabel == "Work")
+        #expect(email.preferredLabel == "work@example.com")
+        #expect(displayName.preferredLabel == "Display")
     }
 
     @Test func distinguishesMissingTodayBucketFromZeroUsage() throws {

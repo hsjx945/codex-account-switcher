@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiny Codex Switcher · UI Redesign</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --canvas: light-dark(#e9eae7, #171817);
+    --surface: light-dark(#fbfbfa, #252624);
+    --surface-2: light-dark(#f2f2ef, #30312e);
+    --hover: light-dark(#ebebe7, #393a37);
+    --text: light-dark(#20211e, #f5f5f1);
+    --muted: light-dark(#70726b, #a8aaa4);
+    --faint: light-dark(#94968e, #7d8078);
+    --line: light-dark(rgba(27,28,25,.11), rgba(255,255,255,.105));
+    --line-strong: light-dark(rgba(27,28,25,.18), rgba(255,255,255,.18));
+    --accent: #f26332;
+    --accent-soft: light-dark(#fff0e9, rgba(242,99,50,.14));
+    --accent-text: light-dark(#9a3513, #ffb18f);
+    --success: #2f9667;
+    --success-soft: light-dark(#e9f6ef, rgba(47,150,103,.14));
+    --warning: #c88020;
+    --warning-soft: light-dark(#fff4df, rgba(200,128,32,.14));
+    --danger: #ca4d4d;
+    --danger-soft: light-dark(#ffeded, rgba(202,77,77,.13));
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; margin: 0; }
+  body {
+    color: var(--text);
+    background: var(--canvas);
+    background-image: linear-gradient(rgba(127,127,127,.055) 1px, transparent 1px), linear-gradient(90deg, rgba(127,127,127,.055) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  button, input, select { color: inherit; font: inherit; }
+  button, select { cursor: pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 2px; }
+  .workspace { width: min(1000px, 100%); min-height: 100vh; margin: auto; padding: 44px 24px 64px; display: grid; grid-template-columns: minmax(0, 1fr) 216px; gap: 34px; align-items: start; }
+  .workspace > section { min-width: 0; }
+  .intro { max-width: 610px; margin-bottom: 26px; }
+  .eyebrow { margin: 0 0 8px; color: var(--accent-text); font-size: 11px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+  h1 { margin: 0; font-size: clamp(28px, 4vw, 40px); line-height: 1.08; letter-spacing: -.045em; }
+  .intro-copy { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+  .sources { margin-top: 11px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .source { padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 9.5px; text-decoration: none; }
+  .source:hover { color: var(--text); background: var(--hover); }
+  .menubar { height: 38px; padding: 0 8px; display: flex; justify-content: flex-end; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: 0 10px 28px rgba(20,22,19,.08); backdrop-filter: blur(18px); }
+  .menu-trigger { height: 28px; padding: 0 9px 0 6px; display: inline-flex; align-items: center; gap: 7px; border: 0; border-radius: 8px; background: var(--hover); font-size: 12px; font-weight: 650; }
+  .menu-trigger img { width: 19px; height: 19px; border-radius: 5px; }
+  .popover { width: 420px; max-width: 100%; max-height: 680px; margin: 10px 8px 0 auto; overflow: auto; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--surface); box-shadow: 0 28px 75px rgba(18,20,17,.20), 0 6px 18px rgba(18,20,17,.10); }
+  .page[hidden] { display: none; }
+  .page { animation: page-in 150ms ease-out; }
+  @keyframes page-in { from { opacity: 0; transform: translateY(3px); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .page, .spinner { animation: none; } }
+  .topbar { min-height: 54px; padding: 0 14px; display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; border-bottom: 1px solid var(--line); }
+  .title { min-width: 0; text-align: center; font-size: 14px; font-weight: 680; letter-spacing: -.01em; }
+  .subtitle { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 450; }
+  .icon { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
+  .icon:hover { background: var(--hover); color: var(--text); }
+  svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+  .banner { margin: 10px 12px 0; padding: 11px 12px; display: flex; align-items: flex-start; gap: 9px; border: 1px solid color-mix(in srgb, var(--warning) 26%, transparent); border-radius: 10px; background: var(--warning-soft); font-size: 12px; line-height: 1.45; }
+  .banner[hidden] { display: none; }
+  .banner strong { display: block; margin-bottom: 1px; }
+  .banner span { color: var(--muted); }
+  .banner .icon { margin: -5px -5px 0 auto; flex: 0 0 auto; }
+  .accounts { padding: 9px; }
+  .account { width: 100%; padding: 14px; display: grid; grid-template-columns: minmax(0,1fr) 16px; gap: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); text-align: left; }
+  .account + .account { margin-top: 8px; }
+  .account:hover { border-color: var(--line-strong); filter: brightness(.985); }
+  .account[aria-selected="true"] { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); background: light-dark(#fffaf7, rgba(242,99,50,.07)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 7%, transparent); }
+  .account-main { min-width: 0; }
+  .account-head { min-height: 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .account-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; line-height: 20px; }
+  .badges { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; }
+  .tag { padding: 3px 7px; border: 1px solid transparent; border-radius: 6px; font-size: 9.5px; font-weight: 720; line-height: 1.1; white-space: nowrap; }
+  .tag.plus { color: light-dark(#a4421d, #ffb18f); background: light-dark(#ffe4d7, rgba(242,99,50,.19)); border-color: light-dark(#f5cbb8, rgba(242,99,50,.25)); }
+  .tag.free { color: light-dark(#5f645e, #c5c8c1); background: light-dark(#e6e8e4, rgba(185,190,181,.13)); border-color: light-dark(#d7dad4, rgba(185,190,181,.19)); }
+  .tag.team { color: light-dark(#2f5f9d, #9fc8ff); background: light-dark(#deebfd, rgba(75,135,215,.18)); border-color: light-dark(#c9daf2, rgba(75,135,215,.24)); }
+  .tag.pro5 { color: light-dark(#6747a7, #c6acff); background: light-dark(#e9defd, rgba(135,95,220,.18)); border-color: light-dark(#d9c9f5, rgba(135,95,220,.24)); }
+  .tag.pro20 { color: light-dark(#a03e65, #ffaccb); background: light-dark(#f8ddea, rgba(210,75,130,.18)); border-color: light-dark(#efc8d9, rgba(210,75,130,.24)); }
+  .tag.current { color: light-dark(#246846, #91dbb4); background: light-dark(#d9f0e3, rgba(50,150,100,.18)); border-color: light-dark(#bfdfcc, rgba(50,150,100,.25)); }
+  .quotas { margin-top: 11px; display: grid; gap: 9px; }
+  .quota { display: grid; grid-template-columns: 48px minmax(72px,1fr) 42px 78px; gap: 9px; align-items: center; }
+  .q-label { color: var(--muted); font-size: 11.5px; font-weight: 590; }
+  .track { height: 6px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--text) 10%, transparent); }
+  .fill { width: var(--value); height: 100%; border-radius: inherit; background: var(--accent); }
+  .pct { text-align: right; font-size: 14px; font-weight: 740; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .reset { overflow: hidden; color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+  .daily-token { margin-top: 11px; padding-top: 10px; display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+  .daily-token strong { color: var(--text); font-size: 14px; font-weight: 740; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .chevron { align-self: center; color: var(--faint); font-size: 18px; }
+  .footer { padding: 8px; display: grid; grid-template-columns: 1fr 1fr 42px; gap: 5px; border-top: 1px solid var(--line); }
+  .nav-button { min-height: 38px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 10px; background: transparent; font-size: 11px; font-weight: 620; }
+  .nav-button:hover { background: var(--hover); }
+  .body { padding: 16px; }
+  .section + .section { margin-top: 18px; }
+  .section-label { margin: 0 0 7px 4px; color: var(--muted); font-size: 9.5px; font-weight: 730; letter-spacing: .07em; text-transform: uppercase; }
+  .group { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+  .setting { min-height: 52px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+  .setting + .setting { border-top: 1px solid var(--line); }
+  .setting-copy { min-width: 0; flex: 1; }
+  .setting-title { display: block; font-size: 11.5px; font-weight: 630; }
+  .setting-help { display: block; margin-top: 3px; color: var(--muted); font-size: 9.5px; line-height: 1.4; }
+  .switch { width: 36px; height: 22px; padding: 2px; flex: 0 0 auto; border: 0; border-radius: 99px; background: color-mix(in srgb, var(--text) 18%, transparent); }
+  .switch::after { content: ""; width: 18px; height: 18px; display: block; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform 140ms ease; }
+  .switch[aria-checked="true"] { background: var(--accent); }
+  .switch[aria-checked="true"]::after { transform: translateX(14px); }
+  .select, .time, .input { height: 30px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); font-size: 10.5px; }
+  .select { max-width: 145px; padding: 0 24px 0 8px; }
+  .time { width: 82px; padding: 0 7px; }
+  .input { width: 100%; padding: 0 10px; font-size: 12px; }
+  .warmup { padding: 0 12px 12px; }
+  .warmup[hidden] { display: none; }
+  .warmup-line { padding-top: 10px; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10.5px; }
+  .managed { padding: 8px; }
+  .managed-row { min-height: 62px; padding: 11px 12px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; border-radius: 11px; }
+  .managed-row:hover { background: var(--surface-2); }
+  .managed-copy { min-width: 0; }
+  .managed-name { display: block; font-size: 13.5px; font-weight: 670; }
+  .managed-email { display: block; margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .row-actions { display: flex; gap: 3px; }
+  .row-actions .danger:hover { color: var(--danger); background: var(--danger-soft); }
+  .active { padding: 4px 7px; border-radius: 99px; background: var(--accent-soft); color: var(--accent-text); font-size: 9px; font-weight: 720; }
+  .add-area { padding: 10px; border-top: 1px solid var(--line); }
+  .wide { width: 100%; height: 38px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); font-size: 11px; font-weight: 640; }
+  .wide:hover { background: var(--hover); }
+  .hint { margin: 8px 4px 1px; color: var(--muted); font-size: 9.5px; line-height: 1.4; }
+  .dialog-icon { width: 42px; height: 42px; margin-bottom: 14px; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); color: var(--accent); }
+  .dialog-icon.danger { background: var(--danger-soft); color: var(--danger); }
+  .dialog-icon svg { width: 22px; height: 22px; }
+  .dialog-title { margin: 0; font-size: 18px; font-weight: 710; letter-spacing: -.025em; }
+  .dialog-copy { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+  .impacts { margin: 14px 0 0; padding: 0; list-style: none; }
+  .impacts li { padding: 8px 0 8px 21px; position: relative; border-top: 1px solid var(--line); color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+  .impacts li::before { content: "✓"; position: absolute; left: 2px; color: var(--success); font-weight: 800; }
+  .actions { margin-top: 18px; display: grid; grid-template-columns: 1fr 1.35fr; gap: 8px; }
+  .button { height: 36px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); font-size: 11px; font-weight: 650; }
+  .button:hover { background: var(--hover); }
+  .button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .button.destructive { border-color: var(--danger); background: var(--danger); color: #fff; }
+  .context { margin-bottom: 15px; padding: 10px 11px; border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; }
+  .form-label { display: block; margin-bottom: 7px; font-size: 10.5px; font-weight: 650; }
+  .form-help { margin: 7px 0 0; color: var(--muted); font-size: 9.5px; }
+  .progress { padding: 34px 28px 30px; text-align: center; }
+  .spinner { width: 34px; height: 34px; margin: 0 auto 16px; border: 3px solid color-mix(in srgb, var(--accent) 18%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: spin 800ms linear infinite; }
+  .progress h2 { margin: 0; font-size: 15px; }
+  .progress p { margin: 7px 0 18px; color: var(--muted); font-size: 10.5px; }
+  .progress-track { height: 4px; overflow: hidden; border-radius: 99px; background: var(--hover); }
+  .progress-fill { width: 66%; height: 100%; background: var(--accent); }
+  .step { margin-top: 8px; display: flex; justify-content: space-between; color: var(--faint); font-size: 9px; }
+  .prototype-nav { position: sticky; top: 28px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: 0 12px 34px rgba(20,22,19,.08); backdrop-filter: blur(18px); }
+  .prototype-nav h2 { margin: 0 0 4px; font-size: 12px; }
+  .prototype-nav p { margin: 0 0 11px; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+  .jumps { display: grid; gap: 3px; }
+  .jump { min-height: 31px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; text-align: left; color: var(--muted); font-size: 10px; }
+  .jump:hover { background: var(--hover); color: var(--text); }
+  .jump.is-active { background: var(--accent-soft); color: var(--accent-text); font-weight: 680; }
+  .nav-note { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--faint); font-size: 9px; line-height: 1.45; }
+  .toast { position: fixed; left: 50%; bottom: 22px; max-width: calc(100% - 32px); padding: 10px 13px; border: 1px solid color-mix(in srgb, var(--success) 28%, transparent); border-radius: 10px; background: var(--success-soft); box-shadow: 0 12px 32px rgba(0,0,0,.15); font-size: 10.5px; transform: translate(-50%, 18px); opacity: 0; pointer-events: none; transition: 160ms ease; }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
+  @media (max-width: 730px) { .workspace { grid-template-columns: minmax(0,1fr); padding: 26px 14px 46px; } .prototype-nav { position: static; order: -1; } .jumps { grid-template-columns: repeat(2,minmax(0,1fr)); } .popover { width: 100%; margin-right: 0; } }
+  @media (max-width: 440px) { .quota { grid-template-columns: 45px minmax(50px,1fr) 40px; row-gap: 4px; } .quota .reset { grid-column: 2 / 4; text-align: right; } .account { grid-template-columns: minmax(0,1fr) 12px; gap: 9px; } }
+</style>
+</head>
+<body>
+<main class="workspace">
+  <section>
+    <header class="intro">
+      <p class="eyebrow">Interactive prototype · v2</p>
+      <h1>额度一眼看清，切换只需一次确认。</h1>
+      <p class="intro-copy">右侧导航用于评审全部点击页，不属于最终插件。视觉取法来自真实 macOS 工具，但信息结构按 Tiny Codex Switcher 的任务重新组织。</p>
+      <div class="sources"><a class="source" href="https://codexbar.app/?lang=en" target="_blank">CodexBar · 额度层级</a><a class="source" href="https://sessionwatcher.com/claude" target="_blank">SessionWatcher · 扫读</a><a class="source" href="https://support.1password.com/collections/" target="_blank">1Password · 账号切换</a><a class="source" href="https://manual.raycast.com/settings" target="_blank">Raycast · 设置分组</a></div>
+    </header>
+    <div class="menubar"><button class="menu-trigger" type="button" data-page="home"><img src="../assets/account-switcher-logo.png" alt=""><span id="menuAccount">Tiny · 68%</span></button></div>
+    <section class="popover" aria-label="Tiny Codex Switcher">
+      <div class="page" id="home">
+        <div class="banner" id="error" hidden><div>⚠️</div><div><strong>账号切换失败</strong><span>无法重新打开 Codex。所选账号已经生效，请手动打开 Codex。</span></div><button class="icon" id="dismiss" type="button" aria-label="关闭">×</button></div>
+        <div class="accounts">
+          <button class="account" type="button" data-account="Tiny" data-value="68" data-token="82.4K" aria-selected="true"><span class="account-main"><span class="account-head"><span class="account-name">Tiny</span><span class="badges"><span class="tag current">当前</span><span class="tag plus">Plus</span></span></span><span class="quotas"><span class="quota"><span class="q-label">5 小时</span><span class="track"><span class="fill" style="--value:68%"></span></span><span class="pct">68%</span><span class="reset">16:40 重置</span></span><span class="quota"><span class="q-label">周额度</span><span class="track"><span class="fill" style="--value:41%"></span></span><span class="pct">41%</span><span class="reset">周一 09:20</span></span></span><span class="daily-token"><span>今日 Token</span><strong>82.4K</strong></span></span><span class="chevron">›</span></button>
+          <button class="account" type="button" data-account="work@example.com" data-value="92" data-token="126.8K" aria-selected="false"><span class="account-main"><span class="account-head"><span class="account-name">work@example.com</span><span class="badges"><span class="tag team">Team</span></span></span><span class="quotas"><span class="quota"><span class="q-label">5 小时</span><span class="track"><span class="fill" style="--value:92%"></span></span><span class="pct">92%</span><span class="reset">18:05 重置</span></span><span class="quota"><span class="q-label">周额度</span><span class="track"><span class="fill" style="--value:73%"></span></span><span class="pct">73%</span><span class="reset">周三 14:10</span></span></span></span><span class="chevron">›</span></button>
+          <button class="account" type="button" data-account="设计账号" data-value="64" data-token="45.1K" aria-selected="false"><span class="account-main"><span class="account-head"><span class="account-name">设计账号</span><span class="badges"><span class="tag pro5">Pro 5x</span></span></span><span class="quotas"><span class="quota"><span class="q-label">周额度</span><span class="track"><span class="fill" style="--value:64%"></span></span><span class="pct">64%</span><span class="reset">周二 08:45</span></span></span></span><span class="chevron">›</span></button>
+          <button class="account" type="button" data-account="高强度账号" data-value="36" data-token="308.6K" aria-selected="false"><span class="account-main"><span class="account-head"><span class="account-name">高强度账号</span><span class="badges"><span class="tag pro20">Pro 20x</span></span></span><span class="quotas"><span class="quota"><span class="q-label">周额度</span><span class="track"><span class="fill" style="--value:36%"></span></span><span class="pct">36%</span><span class="reset">周四 17:25</span></span></span></span><span class="chevron">›</span></button>
+          <button class="account" type="button" data-account="free@example.com" data-value="100" data-token="18.2K" aria-selected="false"><span class="account-main"><span class="account-head"><span class="account-name">free@example.com</span><span class="badges"><span class="tag free">Free</span></span></span><span class="quotas"><span class="quota"><span class="q-label">5 小时</span><span class="track"><span class="fill" style="--value:100%"></span></span><span class="pct">100%</span><span class="reset">23:40 重置</span></span><span class="quota"><span class="q-label">周额度</span><span class="track"><span class="fill" style="--value:88%"></span></span><span class="pct">88%</span><span class="reset">周五 11:05</span></span></span></span><span class="chevron">›</span></button>
+        </div>
+        <footer class="footer"><button class="nav-button" type="button" data-page="manage"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19M17 8h4M19 6v4"/></svg>管理账号</button><button class="nav-button" type="button" data-page="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>设置</button><button class="nav-button" id="quit" type="button" aria-label="退出应用"><svg viewBox="0 0 24 24"><path d="M12 2v10M5.6 5.6a9 9 0 1 0 12.8 0"/></svg></button></footer>
+      </div>
+      <div class="page" id="manage" hidden>
+        <header class="topbar"><button class="icon" type="button" data-page="home" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div class="title">管理账号<span class="subtitle">昵称与本地账号档案</span></div><span></span></header>
+        <div class="managed"><div class="managed-row"><span class="managed-copy"><span class="managed-name">Tiny</span><span class="managed-email">tiny@example.com</span></span><span class="active">当前</span></div><div class="managed-row"><span class="managed-copy"><span class="managed-name">work@example.com</span><span class="managed-email">未设置备注</span></span><span class="row-actions"><button class="icon edit" type="button" data-account="" data-email="work@example.com" aria-label="编辑"><svg viewBox="0 0 24 24"><path d="m4 20 4-1 11-11a2 2 0 0 0-3-3L5 16l-1 4Z"/></svg></button><button class="icon danger remove" type="button" data-account="work@example.com" aria-label="移除"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span></div><div class="managed-row"><span class="managed-copy"><span class="managed-name">备用账号</span><span class="managed-email">backup@example.com</span></span><span class="row-actions"><button class="icon edit" type="button" data-account="备用账号" data-email="backup@example.com" aria-label="编辑"><svg viewBox="0 0 24 24"><path d="m4 20 4-1 11-11a2 2 0 0 0-3-3L5 16l-1 4Z"/></svg></button><button class="icon danger remove" type="button" data-account="备用账号" aria-label="移除"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span></div></div>
+        <div class="add-area"><button class="wide" type="button" data-page="add">＋ 添加账号</button><p class="hint">将在浏览器中打开 Codex 登录；现有账号仍可正常使用。</p></div>
+      </div>
+      <div class="page" id="add" hidden><header class="topbar"><button class="icon" type="button" data-page="manage" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div class="title">添加账号</div><span></span></header><div class="progress"><div class="spinner"></div><h2>等待浏览器登录</h2><p>完成 Codex 登录后，新账号会自动出现在列表中。</p><button class="button" type="button" data-page="manage" style="width:150px">取消添加</button></div></div>
+      <div class="page" id="edit" hidden><header class="topbar"><button class="icon" type="button" data-page="manage" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div class="title">编辑昵称</div><span></span></header><div class="body"><div class="context" id="editEmail">work@example.com</div><label class="form-label" for="nickname">昵称</label><input class="input" id="nickname" value="工作账号"><p class="form-help">留空时使用登录邮箱。</p><div class="actions"><button class="button" type="button" data-page="manage">取消</button><button class="button primary" id="save" type="button">保存</button></div></div></div>
+      <div class="page" id="remove" hidden><header class="topbar"><button class="icon" type="button" data-page="manage" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div class="title">移除账号</div><span></span></header><div class="body"><div class="dialog-icon danger"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></div><h2 class="dialog-title" id="removeTitle">移除“工作账号”？</h2><p class="dialog-copy">只会删除这台 Mac 上保存的本地账号档案，不会注销 OpenAI 账号或其他设备上的会话。</p><div class="actions"><button class="button" type="button" data-page="manage">取消</button><button class="button destructive" id="confirmRemove" type="button">移除账号</button></div></div></div>
+      <div class="page" id="settings" hidden><header class="topbar"><button class="icon" type="button" data-page="home" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div class="title">设置</div><span></span></header><div class="body">
+        <section class="section"><h3 class="section-label">常规</h3><div class="group"><div class="setting"><span class="setting-copy"><span class="setting-title">登录时自动启动</span></span><button class="switch" role="switch" aria-checked="true"></button></div><div class="setting"><span class="setting-copy"><span class="setting-title">菜单栏显示剩余额度</span></span><button class="switch" role="switch" aria-checked="true"></button></div><div class="setting"><span class="setting-copy"><span class="setting-title">支持的账号显示 5 小时额度</span></span><button class="switch" role="switch" aria-checked="true"></button></div><div class="setting"><span class="setting-copy"><span class="setting-title">语言</span></span><select class="select"><option>简体中文</option><option>跟随系统</option><option>English</option></select></div></div></section>
+        <section class="section"><h3 class="section-label">用量与提醒</h3><div class="group"><div class="setting"><span class="setting-copy"><span class="setting-title">显示 Token 用量</span><span class="setting-help">只统计这台 Mac 上现存的 Codex 会话。</span></span><button class="switch" role="switch" aria-checked="true"></button></div><div class="setting"><span class="setting-copy"><span class="setting-title">5 小时额度恢复提醒</span><span class="setting-help">可从通知直接切换；运行中任务会再次确认。</span></span><button class="switch" role="switch" aria-checked="true"></button></div></div></section>
+        <section class="section"><h3 class="section-label">实验功能</h3><div class="group"><div class="setting"><span class="setting-copy"><span class="setting-title">每日预热 5 小时窗口</span><span class="setting-help">每个账号发送一次最小请求，会消耗少量用量。</span></span><button class="switch" id="warmupSwitch" role="switch" aria-checked="false"></button></div><div class="warmup" id="warmup" hidden><div class="warmup-line"><span>每日执行时间</span><input class="time" type="time" value="08:30"></div></div></div></section>
+      </div></div>
+      <div class="page" id="confirm" hidden><header class="topbar"><button class="icon" type="button" data-page="home" aria-label="返回"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button><div class="title">确认切换</div><span></span></header><div class="body"><div class="dialog-icon"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3M18 7l-3 3M6 17l3-3"/></svg></div><h2 class="dialog-title">切换到“<span id="confirmName">work@example.com</span>”？</h2><p class="dialog-copy">Codex Desktop 会关闭并重新打开。切换前请确认重要任务已经保存。</p><ul class="impacts"><li>正在运行的 Desktop 任务可能中断</li><li>已经打开的 CLI 会话保持原账号</li><li>新开的 CLI 会话使用所选账号</li></ul><div class="actions"><button class="button" type="button" data-page="home">取消</button><button class="button primary" id="confirmSwitch" type="button">切换账号</button></div></div></div>
+      <div class="page" id="switching" hidden><header class="topbar"><span></span><div class="title">正在切换账号</div><span></span></header><div class="progress"><div class="spinner"></div><h2>正在验证所选账号…</h2><p>请不要退出 Tiny Codex Switcher。</p><div class="progress-track"><div class="progress-fill"></div></div><div class="step"><span>第 4 步，共 6 步</span><span>验证账号</span></div></div></div>
+    </section>
+  </section>
+  <aside class="prototype-nav"><h2>原型导航</h2><p>直接查看全部点击页与关键状态。</p><div class="jumps"><button class="jump is-active" data-page="home">01 · 账号首页</button><button class="jump" data-page="confirm">02 · 切换确认</button><button class="jump" data-page="switching">03 · 切换中</button><button class="jump" data-page="manage">04 · 管理账号</button><button class="jump" data-page="add">05 · 添加账号</button><button class="jump" data-page="edit">06 · 编辑昵称</button><button class="jump" data-page="remove">07 · 移除确认</button><button class="jump" data-page="settings">08 · 设置</button><button class="jump" id="showError">09 · 错误状态</button></div><div class="nav-note">420px 宽 · 8px 基础间距 · 主任务优先 · 危险操作隔离 · 浅色/深色自适应</div></aside>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script>
+  const pages=[...document.querySelectorAll('.page')], jumps=[...document.querySelectorAll('.jump[data-page]')], accounts=[...document.querySelectorAll('.account')]; let pending='work@example.com';
+  function showPage(id){pages.forEach(p=>p.hidden=p.id!==id);jumps.forEach(j=>j.classList.toggle('is-active',j.dataset.page===id));document.querySelector('.popover').scrollTop=0}
+  function say(message){const t=document.getElementById('toast');t.textContent=message;t.classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.classList.remove('show'),1600)}
+  document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
+  document.querySelectorAll('.switch').forEach(b=>b.addEventListener('click',()=>{const on=b.getAttribute('aria-checked')!=='true';b.setAttribute('aria-checked',on);if(b.id==='warmupSwitch')document.getElementById('warmup').hidden=!on}));
+  accounts.forEach(a=>a.addEventListener('click',()=>{if(a.getAttribute('aria-selected')==='true'){say('这已经是当前账号');return}pending=a.dataset.account;document.getElementById('confirmName').textContent=pending;showPage('confirm')}));
+  document.querySelectorAll('.edit').forEach(b=>b.addEventListener('click',()=>{document.getElementById('nickname').value=b.dataset.account;document.getElementById('editEmail').textContent=b.dataset.email;showPage('edit')}));
+  document.querySelectorAll('.remove').forEach(b=>b.addEventListener('click',()=>{pending=b.dataset.account;document.getElementById('removeTitle').textContent=`移除“${pending}”？`;showPage('remove')}));
+  document.getElementById('confirmSwitch').addEventListener('click',()=>{showPage('switching');setTimeout(()=>{const chosen=accounts.find(a=>a.dataset.account===pending);if(chosen){accounts.forEach(a=>{a.setAttribute('aria-selected',a===chosen);a.querySelector('.tag.current')?.remove();a.querySelector('.daily-token')?.remove()});chosen.querySelector('.badges').insertAdjacentHTML('afterbegin','<span class="tag current">当前</span>');chosen.querySelector('.quotas').insertAdjacentHTML('afterend',`<span class="daily-token"><span>今日 Token</span><strong>${chosen.dataset.token}</strong></span>`);document.querySelector('.accounts').prepend(chosen);document.getElementById('menuAccount').textContent=`${pending} · ${chosen.dataset.value}%`}showPage('home');say(`已切换到 ${pending}`)},900)});
+  document.getElementById('showError').addEventListener('click',()=>{showPage('home');document.getElementById('error').hidden=false});
+  document.getElementById('dismiss').addEventListener('click',()=>document.getElementById('error').hidden=true);
+  document.getElementById('quit').addEventListener('click',()=>say('原型中不会退出应用'));
+  document.getElementById('save').addEventListener('click',()=>{showPage('manage');say('昵称已保存')});
+  document.getElementById('confirmRemove').addEventListener('click',()=>{showPage('manage');say(`${pending} 已移除（原型演示）`)});
+</script>
+</body>
+</html>

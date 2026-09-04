@@ -279,9 +279,9 @@ struct CoreChecks {
             id: UUID(), displayName: "Unknown", email: "unknown@example.com", accountID: "unknown",
             planType: "future_plan", createdAt: Date(timeIntervalSince1970: 1), lastUsedAt: nil
         )
-        try require(plusProfile.subscriptionBadge == "PLUS", "plus plan identification")
-        try require(proProfile.subscriptionBadge == "PRO 20X", "pro plan identification")
-        try require(proLiteProfile.subscriptionBadge == "PRO 5X", "pro lite plan identification")
+        try require(plusProfile.subscriptionBadge == "Plus", "plus plan identification")
+        try require(proProfile.subscriptionBadge == "Pro 20x", "pro plan identification")
+        try require(proLiteProfile.subscriptionBadge == "Pro 5x", "pro lite plan identification")
         try require(unknownProfile.subscriptionBadge == nil, "unknown plan does not get a badge")
         try require(plusProfile.supportsFiveHourUsage, "plus may show five-hour usage")
         try require(!proProfile.supportsFiveHourUsage, "pro never shows five-hour usage")

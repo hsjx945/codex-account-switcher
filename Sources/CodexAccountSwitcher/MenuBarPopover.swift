@@ -14,40 +14,32 @@ struct MenuBarPopover: View {
                     dismissTitle: model.text("ok"),
                     onDismiss: model.dismissError
                 )
-                Divider()
             }
 
-            Group {
-                switch page {
-                case .accounts:
-                    accountPage
-                case .manageAccounts:
-                    ManageAccountsView(model: model) {
-                        page = .accounts
-                    }
-                case .settings:
-                    SettingsView(model: model) {
-                        page = .accounts
-                    }
-                case let .confirmSwitch(account):
-                    SwitchConfirmationPage(
-                        model: model,
-                        account: account,
-                        onCancel: {
-                            page = .accounts
-                        },
-                        onConfirm: {
-                            page = .accounts
-                            Task { await model.switchAccount(to: account.id) }
-                        }
-                    )
+            switch page {
+            case .accounts:
+                accountPage
+            case .manageAccounts:
+                ManageAccountsView(model: model) {
+                    page = .accounts
                 }
+            case .settings:
+                SettingsView(model: model) {
+                    page = .accounts
+                }
+            case let .confirmSwitch(account):
+                SwitchConfirmationPage(
+                    model: model,
+                    account: account,
+                    onCancel: { page = .accounts },
+                    onConfirm: { switchAccount(account) }
+                )
+            case let .switching(account):
+                SwitchingPage(model: model, account: account)
             }
         }
-        .frame(width: 500)
-        .onAppear {
-            page = .accounts
-        }
+        .frame(width: 420)
+        .onAppear { page = .accounts }
         .task {
             await model.start()
             model.refreshWeeklyUsage()
@@ -58,66 +50,63 @@ struct MenuBarPopover: View {
         VStack(spacing: 0) {
             if !model.activeIdentityConfirmed {
                 Text(model.text("active_unconfirmed"))
-                    .font(.caption)
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
                     .background(.orange.opacity(0.08))
             }
 
             if model.accounts.isEmpty {
-                Text(model.text("no_accounts"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
+                ContentUnavailableView(
+                    model.text("no_accounts"),
+                    systemImage: "person.crop.circle.badge.plus"
+                )
+                .frame(maxWidth: .infinity, minHeight: 150)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(model.displayedAccounts) { account in
-                        Button {
-                            if account.id == model.activeAccountID {
-                                NSApp.keyWindow?.close()
-                            } else {
-                                page = .confirmSwitch(account)
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(model.displayedAccounts) { account in
+                            Button {
+                                if account.id == model.activeAccountID {
+                                    NSApp.keyWindow?.close()
+                                } else {
+                                    page = .confirmSwitch(account)
+                                }
+                            } label: {
+                                AccountRow(
+                                    account: account,
+                                    usageState: model.usageStates[account.id] ?? .idle,
+                                    isActive: account.id == model.activeAccountID,
+                                    language: model.settings.language,
+                                    showsFiveHourUsage: model.settings.showsFiveHourUsage,
+                                    tokenActivity: model.tokenActivities[account.id],
+                                    localModelUsage: account.id == model.activeAccountID
+                                        ? model.localModelUsage
+                                        : nil,
+                                    showsTokenActivity: model.settings.showsTokenActivity,
+                                    warmupStatus: model.warmupStatuses[account.id]
+                                )
                             }
-                        } label: {
-                            AccountRow(
-                                account: account,
-                                usageState: model.usageStates[account.id] ?? .idle,
-                                isActive: account.id == model.activeAccountID,
-                                language: model.settings.language,
-                                showsFiveHourUsage: model.settings.showsFiveHourUsage,
-                                nameStyle: model.settings.accountNameStyle,
-                                tokenActivity: model.tokenActivities[account.id],
-                                localModelUsage: account.id == model.activeAccountID
-                                    ? model.localModelUsage
-                                    : nil,
-                                showsTokenActivity: model.settings.showsTokenActivity,
-                                warmupStatus: model.warmupStatuses[account.id]
-                            )
+                            .buttonStyle(.plain)
+                            .disabled(model.isMutating)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(model.isMutating)
                     }
+                    .padding(9)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-
+                .frame(maxHeight: 610)
             }
 
             Divider()
-            HStack(spacing: 2) {
-                FooterAction(
-                    title: model.text("manage"),
-                    systemImage: "person.2"
-                ) {
+
+            HStack(spacing: 5) {
+                FooterAction(title: model.text("manage"), systemImage: "person.2") {
                     page = .manageAccounts
                 }
                 .disabled(model.isMutating)
 
-                FooterAction(
-                    title: model.text("settings"),
-                    systemImage: "gearshape"
-                ) {
+                FooterAction(title: model.text("settings"), systemImage: "gearshape") {
                     page = .settings
                 }
                 .disabled(model.isMutating)
@@ -125,13 +114,22 @@ struct MenuBarPopover: View {
                 FooterAction(
                     title: model.text("quit"),
                     systemImage: "power",
-                    shortcut: KeyboardShortcut("q", modifiers: .command)
+                    shortcut: KeyboardShortcut("q", modifiers: .command),
+                    iconOnly: true
                 ) {
                     NSApp.terminate(nil)
                 }
+                .frame(width: 42)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(8)
+        }
+    }
+
+    private func switchAccount(_ account: AccountProfile) {
+        page = .switching(account)
+        Task {
+            await model.switchAccount(to: account.id)
+            page = .accounts
         }
     }
 }
@@ -141,6 +139,7 @@ private enum PopoverPage {
     case manageAccounts
     case settings
     case confirmSwitch(AccountProfile)
+    case switching(AccountProfile)
 }
 
 private struct SwitchConfirmationPage: View {
@@ -152,34 +151,88 @@ private struct SwitchConfirmationPage: View {
     var body: some View {
         VStack(spacing: 0) {
             PopoverHeader(
-                title: model.format(
-                    "switch_title",
-                    account.primaryLabel(style: model.settings.accountNameStyle)
-                ),
-                backTitle: model.text("cancel"),
+                title: model.text("confirm_switch"),
+                backTitle: model.text("back"),
                 onBack: onCancel
             )
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 15) {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 42, height: 42)
+                    .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
+
+                Text(model.format("switch_title", account.preferredLabel))
+                    .font(.system(size: 18, weight: .bold))
+
                 Text(model.text("switch_body"))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 7) {
+                VStack(alignment: .leading, spacing: 9) {
+                    ImpactRow(text: model.text("switch_impact_desktop"))
+                    ImpactRow(text: model.text("switch_impact_existing_cli"))
+                    ImpactRow(text: model.text("switch_impact_new_cli"))
+                }
+
+                HStack(spacing: 8) {
                     Button(model.text("cancel"), action: onCancel)
                         .buttonStyle(.bordered)
+                        .controlSize(.large)
                         .frame(maxWidth: .infinity)
 
                     Button(model.text("switch"), action: onConfirm)
                         .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                        .controlSize(.large)
                         .frame(maxWidth: .infinity)
                 }
             }
-            .padding(14)
+            .padding(16)
         }
+    }
+}
+
+private struct ImpactRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Color(nsColor: .systemGreen))
+                .padding(.top, 2)
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct SwitchingPage: View {
+    @ObservedObject var model: AppModel
+    let account: AccountProfile
+
+    var body: some View {
+        VStack(spacing: 18) {
+            ProgressView()
+                .controlSize(.large)
+                .tint(.orange)
+
+            VStack(spacing: 6) {
+                Text(model.text("switching_title"))
+                    .font(.system(size: 15, weight: .bold))
+                Text(account.preferredLabel)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 190)
+        .padding(24)
     }
 }
 
@@ -190,9 +243,9 @@ private struct InlineErrorBanner: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 9) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundStyle(.orange)
                 .padding(.top, 2)
 
@@ -216,8 +269,8 @@ private struct InlineErrorBanner: View {
             .accessibilityLabel(dismissTitle)
             .help(dismissTitle)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(Color.orange.opacity(0.08))
     }
 }
@@ -226,39 +279,34 @@ private struct FooterAction: View {
     let title: String
     let systemImage: String
     var shortcut: KeyboardShortcut?
+    var iconOnly = false
     let action: () -> Void
 
     @State private var isHovering = false
 
-    init(
-        title: String,
-        systemImage: String,
-        shortcut: KeyboardShortcut? = nil,
-        action: @escaping () -> Void
-    ) {
-        self.title = title
-        self.systemImage = systemImage
-        self.shortcut = shortcut
-        self.action = action
-    }
-
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 11.5, weight: .medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.80)
-                .padding(.horizontal, 5)
-                .frame(maxWidth: .infinity, minHeight: 34)
-                .contentShape(Rectangle())
+            Group {
+                if iconOnly {
+                    Image(systemName: systemImage)
+                } else {
+                    Label(title, systemImage: systemImage)
+                }
+            }
+            .font(.system(size: 11.5, weight: .medium))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .keyboardShortcut(shortcut)
-        .frame(maxWidth: .infinity)
         .background(
             Color.primary.opacity(isHovering ? 0.06 : 0),
-            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
         )
         .onHover { isHovering = $0 }
+        .accessibilityLabel(title)
+        .help(title)
     }
 }

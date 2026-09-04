@@ -21,11 +21,17 @@ struct AccountProfile: Codable, Identifiable, Equatable, Hashable, Sendable {
 
     var subscriptionBadge: String? {
         switch planType?.lowercased() {
-        case "plus": "PLUS"
-        case "pro": "PRO 20X"
-        case "prolite": "PRO 5X"
+        case "free": "Free"
+        case "plus": "Plus"
+        case "team": "Team"
+        case "pro": "Pro 20x"
+        case "prolite": "Pro 5x"
         default: nil
         }
+    }
+
+    var preferredLabel: String {
+        nickname?.nilIfBlank ?? email ?? displayName
     }
 
     var supportsFiveHourUsage: Bool {

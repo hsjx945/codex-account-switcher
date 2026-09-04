@@ -15,197 +15,67 @@ struct SettingsView: View {
             Divider()
 
             ScrollView {
-                VStack(spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(model.text("launch_at_login"))
-                        if model.launchAtLoginRequiresApproval {
-                            Text(model.text("launch_at_login_requires_approval"))
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        } else if model.launchAtLoginUnavailable {
-                            Text(model.text("launch_at_login_unavailable"))
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { model.launchesAtLogin },
-                        set: { enabled in model.setLaunchAtLogin(enabled) }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .fixedSize()
-                    .accessibilityLabel(Text(model.text("launch_at_login")))
+                VStack(alignment: .leading, spacing: 18) {
+                    generalSection
+                    usageSection
+                    experimentalSection
                 }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
+                .padding(14)
+            }
+            .frame(maxHeight: 560)
+        }
+        .onAppear { model.refreshLaunchAtLoginStatus() }
+    }
+
+    private var generalSection: some View {
+        SettingsSection(title: model.text("general")) {
+            VStack(spacing: 0) {
+                SettingToggleRow(
+                    title: model.text("launch_at_login"),
+                    detail: launchAtLoginDetail,
+                    detailColor: launchAtLoginDetail == nil ? .secondary : .orange,
+                    isOn: Binding(
+                        get: { model.launchesAtLogin },
+                        set: { model.setLaunchAtLogin($0) }
+                    )
+                )
 
                 if model.launchAtLoginRequiresApproval {
                     Button(model.text("open_system_settings")) {
                         model.openLoginItemsSettings()
                     }
                     .buttonStyle(.link)
-                    .font(.caption)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 8)
+                    .font(.system(size: 10.5))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Divider()
-                    .padding(.leading, 14)
+                SettingDivider()
 
-                HStack {
-                    Text(model.text("show_menu_bar_percentage"))
-                    Spacer()
-                    Toggle("", isOn: Binding(
+                SettingToggleRow(
+                    title: model.text("show_menu_bar_percentage"),
+                    isOn: Binding(
                         get: { model.settings.showsMenuBarPercentage },
                         set: { enabled in Task { await model.setShowsMenuBarPercentage(enabled) } }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .fixedSize()
-                    .accessibilityLabel(Text(model.text("show_menu_bar_percentage")))
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
+                    )
+                )
 
-                Divider()
-                    .padding(.leading, 14)
+                SettingDivider()
 
-                HStack {
-                    Text(model.text("show_five_hour_usage"))
-                    Spacer()
-                    Toggle("", isOn: Binding(
+                SettingToggleRow(
+                    title: model.text("show_supported_five_hour_usage"),
+                    isOn: Binding(
                         get: { model.settings.showsFiveHourUsage },
                         set: { enabled in Task { await model.setShowsFiveHourUsage(enabled) } }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .fixedSize()
-                    .accessibilityLabel(Text(model.text("show_five_hour_usage")))
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
+                    )
+                )
 
-                Divider()
-                    .padding(.leading, 14)
-
-                HStack {
-                    Text(model.text("account_name_style"))
-                    Spacer()
-                    Picker(model.text("account_name_style"), selection: Binding(
-                        get: { model.settings.accountNameStyle },
-                        set: { style in Task { await model.setAccountNameStyle(style) } }
-                    )) {
-                        Text(model.text("show_email")).tag(AccountNameStyle.email)
-                        Text(model.text("show_nickname")).tag(AccountNameStyle.nickname)
-                        Text(model.text("show_nickname_and_email")).tag(AccountNameStyle.nicknameAndEmail)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .fixedSize()
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-
-                Divider()
-                    .padding(.leading, 14)
-
-                HStack {
-                    Text(model.text("show_token_activity"))
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { model.settings.showsTokenActivity },
-                        set: { enabled in Task { await model.setShowsTokenActivity(enabled) } }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .fixedSize()
-                    .accessibilityLabel(Text(model.text("show_token_activity")))
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-
-                Divider()
-                    .padding(.leading, 14)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(model.text("five_hour_reset_notifications"))
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { model.settings.fiveHourResetNotificationsEnabled },
-                            set: { enabled in
-                                Task { await model.setFiveHourResetNotificationsEnabled(enabled) }
-                            }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .fixedSize()
-                        .accessibilityLabel(Text(model.text("five_hour_reset_notifications")))
-                    }
-                    Text(model.text("five_hour_reset_notifications_hint"))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .frame(minHeight: 44)
-
-                Divider()
-                    .padding(.leading, 14)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(model.text("automatic_warmup"))
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { model.settings.automaticWarmupEnabled },
-                            set: { enabled in Task { await model.setAutomaticWarmupEnabled(enabled) } }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .fixedSize()
-                        .accessibilityLabel(Text(model.text("automatic_warmup")))
-                    }
-
-                    if model.settings.automaticWarmupEnabled {
-                        HStack {
-                            Text(model.text("warmup_time"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            DatePicker(
-                                model.text("warmup_time"),
-                                selection: Binding(
-                                    get: { model.warmupTime },
-                                    set: { date in Task { await model.setWarmupTime(date) } }
-                                ),
-                                displayedComponents: .hourAndMinute
-                            )
-                            .labelsHidden()
-                            .datePickerStyle(.field)
-                            .fixedSize()
-                        }
-
-                        Text(model.text("warmup_hint"))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .frame(minHeight: 44)
-
-                Divider()
-                    .padding(.leading, 14)
+                SettingDivider()
 
                 HStack {
                     Text(model.text("language"))
+                        .font(.system(size: 11.5, weight: .medium))
                     Spacer()
                     Picker(model.text("language"), selection: Binding(
                         get: { model.settings.language },
@@ -219,14 +89,155 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                 }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 50)
+            }
+        }
+    }
+
+    private var usageSection: some View {
+        SettingsSection(title: model.text("usage_and_alerts")) {
+            VStack(spacing: 0) {
+                SettingToggleRow(
+                    title: model.text("show_token_activity"),
+                    detail: model.text("show_token_activity_hint"),
+                    isOn: Binding(
+                        get: { model.settings.showsTokenActivity },
+                        set: { enabled in Task { await model.setShowsTokenActivity(enabled) } }
+                    )
+                )
+
+                SettingDivider()
+
+                SettingToggleRow(
+                    title: model.text("five_hour_reset_notifications"),
+                    detail: model.text("five_hour_reset_notifications_hint"),
+                    isOn: Binding(
+                        get: { model.settings.fiveHourResetNotificationsEnabled },
+                        set: { enabled in
+                            Task { await model.setFiveHourResetNotificationsEnabled(enabled) }
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    private var experimentalSection: some View {
+        SettingsSection(title: model.text("experimental")) {
+            VStack(spacing: 0) {
+                SettingToggleRow(
+                    title: model.text("automatic_warmup"),
+                    detail: model.text("warmup_hint"),
+                    isOn: Binding(
+                        get: { model.settings.automaticWarmupEnabled },
+                        set: { enabled in Task { await model.setAutomaticWarmupEnabled(enabled) } }
+                    )
+                )
+
+                if model.settings.automaticWarmupEnabled {
+                    SettingDivider()
+
+                    HStack {
+                        Text(model.text("warmup_time"))
+                            .font(.system(size: 11.5, weight: .medium))
+                        Spacer()
+                        DatePicker(
+                            model.text("warmup_time"),
+                            selection: Binding(
+                                get: { model.warmupTime },
+                                set: { date in Task { await model.setWarmupTime(date) } }
+                            ),
+                            displayedComponents: .hourAndMinute
+                        )
+                        .labelsHidden()
+                        .datePickerStyle(.field)
+                        .fixedSize()
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 50)
                 }
             }
-            .frame(maxHeight: 520)
         }
-        .onAppear {
-            model.refreshLaunchAtLoginStatus()
+    }
+
+    private var launchAtLoginDetail: String? {
+        if model.launchAtLoginRequiresApproval {
+            return model.text("launch_at_login_requires_approval")
         }
+        if model.launchAtLoginUnavailable {
+            return model.text("launch_at_login_unavailable")
+        }
+        return nil
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title.uppercased())
+                .font(.system(size: 9.5, weight: .bold))
+                .foregroundStyle(.secondary)
+                .tracking(0.7)
+                .padding(.leading, 4)
+
+            content
+                .background(
+                    Color(nsColor: .controlBackgroundColor).opacity(0.56),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                }
+        }
+    }
+}
+
+private struct SettingToggleRow: View {
+    let title: String
+    var detail: String? = nil
+    var detailColor: Color = .secondary
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .medium))
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(detailColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 10)
+
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .fixedSize()
+                .accessibilityLabel(title)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(minHeight: 50)
+    }
+}
+
+private struct SettingDivider: View {
+    var body: some View {
+        Divider().padding(.leading, 12)
     }
 }

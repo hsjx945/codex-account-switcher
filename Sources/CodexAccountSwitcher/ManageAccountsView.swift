@@ -19,6 +19,8 @@ struct ManageAccountsView: View {
             switch page {
             case .accounts:
                 accountList
+            case .add:
+                addAccountPage
             case let .edit(account):
                 NicknameEditor(model: model, account: account) {
                     page = .accounts
@@ -27,19 +29,23 @@ struct ManageAccountsView: View {
                 removePage(account)
             }
         }
+        .onChange(of: model.isAddingAccount) { wasAdding, isAdding in
+            if wasAdding, !isAdding, case .add = page {
+                page = .accounts
+            }
+        }
     }
 
     private var headerTitle: String {
         switch page {
         case .accounts:
-            model.text("accounts")
+            model.text("manage")
+        case .add:
+            model.text("add_account")
         case .edit:
             model.text("edit_nickname")
-        case let .remove(account):
-            model.format(
-                "remove_title",
-                account.primaryLabel(style: model.settings.accountNameStyle)
-            )
+        case .remove:
+            model.text("remove_account")
         }
     }
 
@@ -47,6 +53,9 @@ struct ManageAccountsView: View {
         switch page {
         case .accounts:
             onBack()
+        case .add:
+            model.cancelAddingAccount()
+            page = .accounts
         case .edit, .remove:
             page = .accounts
         }
@@ -55,88 +64,99 @@ struct ManageAccountsView: View {
     private var accountList: some View {
         VStack(spacing: 0) {
             if model.accounts.isEmpty {
-                VStack(spacing: 7) {
-                    Image(systemName: "person.crop.circle.badge.plus")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.secondary)
-                    Text(model.text("no_accounts"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
+                ContentUnavailableView(
+                    model.text("no_accounts"),
+                    systemImage: "person.crop.circle.badge.plus"
+                )
+                .frame(maxWidth: .infinity, minHeight: 150)
             } else {
-                VStack(spacing: 2) {
-                    ForEach(model.displayedAccounts) { account in
-                        managedAccountRow(account)
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(model.displayedAccounts) { account in
+                            ManagedAccountRow(
+                                model: model,
+                                account: account,
+                                onEdit: { page = .edit(account) },
+                                onRemove: { page = .remove(account) }
+                            )
+                        }
                     }
+                    .padding(8)
                 }
-                .padding(5)
+                .frame(maxHeight: 520)
             }
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 3) {
-                if model.isAddingAccount {
-                    Button {
-                        model.cancelAddingAccount()
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "xmark")
-                                .frame(width: 14)
-                            Text(model.text("cancel_add_account"))
-                            Spacer()
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        .font(.system(size: 12, weight: .medium))
-                        .padding(.horizontal, 8)
-                        .frame(height: 30)
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    page = .add
+                    model.addAccount()
+                } label: {
+                    Label(model.text("add_account"), systemImage: "plus")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 38)
                         .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Button {
-                        model.addAccount()
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "plus")
-                                .frame(width: 14)
-                            Text(model.text("add_account"))
-                            Spacer()
-                        }
-                        .font(.system(size: 12, weight: .medium))
-                        .padding(.horizontal, 8)
-                        .frame(height: 30)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(model.isMutating)
                 }
+                .buttonStyle(.plain)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
+                .disabled(model.isMutating || model.isAddingAccount)
 
-                Text(model.text(model.isAddingAccount ? "sign_in_pending_hint" : "sign_in_hint"))
+                Text(model.text("sign_in_hint"))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 4)
             }
-            .padding(5)
+            .padding(9)
         }
     }
 
+    private var addAccountPage: some View {
+        VStack(spacing: 17) {
+            ProgressView()
+                .controlSize(.large)
+                .tint(.orange)
+
+            VStack(spacing: 6) {
+                Text(model.text("waiting_for_sign_in"))
+                    .font(.system(size: 15, weight: .bold))
+                Text(model.text("sign_in_pending_hint"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button(model.text("cancel_add_account")) {
+                model.cancelAddingAccount()
+                page = .accounts
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, minHeight: 190)
+        .padding(24)
+    }
+
     private func removePage(_ account: AccountProfile) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 15) {
+            Image(systemName: "trash")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.red)
+                .frame(width: 42, height: 42)
+                .background(.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
+
+            Text(model.format("remove_title", account.preferredLabel))
+                .font(.system(size: 18, weight: .bold))
+
             Text(model.text("remove_body"))
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 7) {
-                Button(model.text("cancel")) {
-                    page = .accounts
-                }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                Button(model.text("cancel")) { page = .accounts }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
 
                 Button(model.text("remove"), role: .destructive) {
                     page = .accounts
@@ -144,68 +164,91 @@ struct ManageAccountsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
+                .controlSize(.large)
                 .frame(maxWidth: .infinity)
                 .disabled(model.isMutating)
             }
         }
-        .padding(14)
+        .padding(16)
     }
+}
 
-    private func managedAccountRow(_ account: AccountProfile) -> some View {
+private enum ManageAccountsPage {
+    case accounts
+    case add
+    case edit(AccountProfile)
+    case remove(AccountProfile)
+}
+
+private struct ManagedAccountRow: View {
+    @ObservedObject var model: AppModel
+    let account: AccountProfile
+    let onEdit: () -> Void
+    let onRemove: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
         HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(account.primaryLabel(style: model.settings.accountNameStyle))
-                    .font(.system(size: 12, weight: .medium))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(account.preferredLabel)
+                    .font(.system(size: 13.5, weight: .semibold))
                     .lineLimit(1)
-                if let secondary = account.secondaryLabel(style: model.settings.accountNameStyle) {
-                    Text(secondary)
-                        .font(.system(size: 10))
+                    .truncationMode(.middle)
+
+                if account.nickname?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                   let email = account.email {
+                    Text(email)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
 
-            Spacer(minLength: 5)
+            Spacer(minLength: 6)
 
-            Button {
-                page = .edit(account)
-            } label: {
+            if account.id == model.activeAccountID {
+                Text(model.text("active"))
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(Color(nsColor: .systemGreen))
+                    .padding(.horizontal, 7)
+                    .frame(height: 20)
+                    .background(
+                        Color(nsColor: .systemGreen).opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 5)
+                    )
+            }
+
+            Button(action: onEdit) {
                 Image(systemName: "pencil")
-                    .frame(width: 25, height: 25)
+                    .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
             .help(model.text("edit_nickname"))
             .accessibilityLabel(model.text("edit_nickname"))
             .disabled(model.isMutating)
 
-            if account.id == model.activeAccountID {
-                Text(model.text("active"))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            } else {
-                Button(role: .destructive) {
-                    page = .remove(account)
-                } label: {
+            if account.id != model.activeAccountID {
+                Button(role: .destructive, action: onRemove) {
                     Image(systemName: "trash")
-                        .frame(width: 25, height: 25)
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .help(model.format("remove_title", account.primaryLabel(style: model.settings.accountNameStyle)))
-                .accessibilityLabel(model.format("remove_title", account.primaryLabel(style: model.settings.accountNameStyle)))
+                .help(model.format("remove_title", account.preferredLabel))
+                .accessibilityLabel(model.format("remove_title", account.preferredLabel))
                 .disabled(model.isMutating)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(minHeight: 46)
-        .contentShape(Rectangle())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(minHeight: 58)
+        .background(
+            Color.primary.opacity(isHovering ? 0.045 : 0),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .onHover { isHovering = $0 }
     }
-}
-
-private enum ManageAccountsPage {
-    case accounts
-    case edit(AccountProfile)
-    case remove(AccountProfile)
 }
 
 private struct NicknameEditor: View {
@@ -227,8 +270,14 @@ private struct NicknameEditor: View {
                 Text(email)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
                     .textSelection(.enabled)
             }
+
+            Text(model.text("nickname"))
+                .font(.system(size: 11, weight: .semibold))
 
             TextField(model.text("nickname"), text: $nickname)
                 .textFieldStyle(.roundedBorder)
@@ -237,9 +286,10 @@ private struct NicknameEditor: View {
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 7) {
+            HStack(spacing: 8) {
                 Button(model.text("cancel"), action: onDone)
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                     .frame(maxWidth: .infinity)
 
                 Button(model.text("save")) {
@@ -249,11 +299,13 @@ private struct NicknameEditor: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .controlSize(.large)
                 .frame(maxWidth: .infinity)
                 .disabled(model.isMutating)
             }
         }
-        .padding(14)
+        .padding(16)
     }
 }
 
@@ -263,23 +315,29 @@ struct PopoverHeader: View {
     let onBack: () -> Void
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 27, height: 27)
+                    .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(backTitle)
             .help(backTitle)
 
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .fixedSize(horizontal: false, vertical: true)
             Spacer()
+
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+
+            Color.clear.frame(width: 30, height: 30)
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 9)
+        .frame(minHeight: 52)
     }
 }
