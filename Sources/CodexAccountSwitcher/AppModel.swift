@@ -4,7 +4,7 @@ import ServiceManagement
 import SwiftUI
 
 private enum UsageRefreshResult: Sendable {
-    case success(UUID, WeeklyUsage, TokenActivity?, String?, String?, Date?)
+    case success(UUID, WeeklyUsage?, TokenActivity?, String?, String?, Date?, String?)
     case failure(UUID, String)
 }
 
@@ -347,7 +347,15 @@ final class AppModel: ObservableObject {
                 group.addTask { [codex, operationGate] in
                     do {
                         let values = try await operationGate.run {
-                            let usage = try await codex.readWeeklyUsage(profileHome: home)
+                            let usage: WeeklyUsage?
+                            let quotaError: String?
+                            do {
+                                usage = try await codex.readWeeklyUsage(profileHome: home)
+                                quotaError = nil
+                            } catch {
+                                usage = nil
+                                quotaError = error.localizedDescription
+                            }
                             let tokens: TokenActivity?
                             let tokenError: String?
                             let tokenFetchedAt: Date?
@@ -361,9 +369,9 @@ final class AppModel: ObservableObject {
                                 tokenFetchedAt = nil
                             }
                             let identity = try? await codex.readIdentity(profileHome: home)
-                            return (usage, tokens, identity?.planType, tokenError, tokenFetchedAt)
+                            return (usage, tokens, identity?.planType, tokenError, tokenFetchedAt, quotaError)
                         }
-                        return .success(id, values.0, values.1, values.2, values.3, values.4)
+                        return .success(id, values.0, values.1, values.2, values.3, values.4, values.5)
                     } catch {
                         return .failure(id, error.localizedDescription)
                     }
@@ -371,12 +379,16 @@ final class AppModel: ObservableObject {
             }
             for await result in group {
                 switch result {
-                case let .success(id, usage, activity, planType, tokenError, fetchedAt):
+                case let .success(id, usage, activity, planType, tokenError, fetchedAt, quotaError):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
                     tokenRefreshErrors[id] = tokenError
                     tokenRefreshPending.remove(id)
                     let previousUsage = usageStates[id]?.displayedUsage
-                    usageStates[id] = .loaded(usage)
+                    if let usage {
+                        usageStates[id] = .loaded(usage)
+                    } else if let quotaError {
+                        usageStates[id] = previousUsage.map { .stale($0, quotaError) } ?? .unavailable(quotaError)
+                    }
                     if let activity {
                         // Publish each successful token response before cache
                         // persistence and before the remaining accounts finish.
@@ -386,7 +398,7 @@ final class AppModel: ObservableObject {
                         }
                     }
                     do {
-                        try await store.cacheWeeklyUsage(usage, profileID: id)
+                        if let usage { try await store.cacheWeeklyUsage(usage, profileID: id) }
                         if let activity, let fetchedAt {
                             try await store.cacheTokenActivity(
                                 activity,
@@ -400,11 +412,13 @@ final class AppModel: ObservableObject {
                                 accounts[index].planType = planType
                             }
                         }
-                        await notifyIfFiveHourResetReached(
-                            profileID: id,
-                            previousUsage: previousUsage,
-                            currentUsage: usage
-                        )
+                        if let usage {
+                            await notifyIfFiveHourResetReached(
+                                profileID: id,
+                                previousUsage: previousUsage,
+                                currentUsage: usage
+                            )
+                        }
                     } catch {
                         showError(error)
                     }

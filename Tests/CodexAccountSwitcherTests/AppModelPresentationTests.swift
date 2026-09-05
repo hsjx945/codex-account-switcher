@@ -6,6 +6,55 @@ import Testing
 
 @MainActor
 struct AppModelPresentationTests {
+    @Test func tokenQuerySurvivesMissingWeeklyQuota() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "independent-token-test-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let executable = root.appending(path: "fixture.sh")
+        let script = """
+        #!/bin/sh
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\\n' '{"id":0,"result":{}}' ;;
+            *rateLimits*) printf '%s\\n' '{"id":1,"result":{"rateLimits":{}}}' ;;
+            *usage*) printf '%s\\n' '{"id":1,"result":{"dailyUsageBuckets":[{"startDate":"\(TokenActivity.dateKey())","tokens":123}]}}' ;;
+            *account*) printf '%s\\n' '{"id":1,"result":{"account":{"accountId":"fixture","email":"fixture@example.com"}}}' ;;
+          esac
+        done
+        """
+        try Data(script.utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
+        let profile = AccountProfile(id: UUID(), displayName: "Fixture", email: "fixture@example.com", accountID: "fixture", createdAt: Date())
+        let home = try await store.createProfileDirectory(id: profile.id)
+        try Data("synthetic".utf8).write(to: home.appending(path: "auth.json"))
+        try await store.addProfile(profile)
+        let model = AppModel(store: store, codex: CodexClient(locator: CodexExecutableLocator(explicitURL: executable), requestTimeout: .seconds(2)), switchService: PresentationNoopSwitch(), operationGate: AccountOperationGate())
+        await model.start()
+        model.refreshWeeklyUsage()
+        await model.waitForWeeklyUsageRefresh()
+        #expect(model.usageStates[profile.id]?.displayedUsage == nil)
+        #expect(model.tokenActivities[profile.id]?.tokens(on: TokenActivity.dateKey()) == 123)
+        #expect(model.tokenRefreshErrors[profile.id] == nil)
+    }
+
+    @Test func modelValuationSummaryRendersAtMenuWidth() throws {
+        let models = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "local-model"].map {
+            LocalModelTokenUsage(model: $0, usage: LocalTokenComponents(total: 4_000_000, uncachedInput: 1_000_000, cachedInput: 2_000_000, output: 1_000_000))
+        }
+        let row = TokenTotalRow(title: "今日 Token · 本机未分账号", usage: LocalTokenComponents(total: 16_000_000, uncachedInput: 4_000_000, cachedInput: 8_000_000, output: 4_000_000), models: models, language: .simplifiedChinese, statusText: "已更新至 9 月 5 日 16:00:00", detailText: "Synthetic UI fixture", isRefreshing: false)
+        let renderer = ImageRenderer(content: row.frame(width: 420).environment(\.colorScheme, .light))
+        renderer.scale = 2
+        let cgImage = try #require(renderer.cgImage)
+        #expect(cgImage.width == 840)
+        #expect(cgImage.height > 450)
+        if let path = ProcessInfo.processInfo.environment["SWITCHER_TEST_RENDER_PATH"] {
+            let rep = NSBitmapImageRep(cgImage: cgImage)
+            try #require(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))
+        }
+    }
+
     @Test func unavailableIdentityRetainsSelectedAccountQuota() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "quota-identity-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

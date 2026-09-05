@@ -216,16 +216,16 @@ struct TokenTotalRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
 
                 Spacer(minLength: 8)
 
-                Text(usage.map { formatTokens($0.total) } ?? "—")
-                    .font(.system(size: 15, weight: .bold).monospacedDigit())
+                Text(usage.map { $0.total.formatted(.number.grouping(.automatic)) } ?? "—")
+                    .font(.system(size: 20, weight: .bold).monospacedDigit())
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
@@ -240,15 +240,68 @@ struct TokenTotalRow: View {
                 component(L10n.string("local_token_output", language: language), usage?.output)
             }
 
+            if !models.isEmpty {
+                Divider()
+                HStack {
+                    Text(L10n.string("local_token_models", language: language))
+                    Spacer()
+                    Text("Token")
+                        .frame(width: 65, alignment: .trailing)
+                    Text(L10n.string("api_value", language: language))
+                        .frame(width: 105, alignment: .trailing)
+                }
+                .font(.system(size: 12, weight: .semibold))
+                if models.count > 4 {
+                    ScrollView { modelRows }.frame(height: 132)
+                } else {
+                    modelRows
+                }
+                HStack {
+                    Text(L10n.string(models.allSatisfy { APITokenValuation.estimate($0) != nil } ? "api_total" : "api_subtotal", language: language))
+                    Spacer()
+                    Text(APITokenValuation.dollars(APITokenValuation.subtotal(models)))
+                        .monospacedDigit()
+                }
+                .font(.system(size: 13, weight: .semibold))
+                Text(L10n.string("api_estimate_note", language: language))
+                    .font(.system(size: 12))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(L10n.string("api_estimate_detail", language: language))
+            }
+
             Text(statusText)
-                .font(.system(size: 9.5))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 10)
         .background(totalBackground)
+        .foregroundStyle(.primary)
         .help(statusText + "\n" + detailText)
+    }
+
+    private var modelRows: some View {
+        VStack(spacing: 9) {
+            ForEach(models) { item in
+                HStack(spacing: 8) {
+                    Text(item.model ?? L10n.string("local_token_unknown_model", language: language))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(item.model ?? "")
+                    Spacer(minLength: 0)
+                    Text(formatTokens(item.usage.total))
+                        .monospacedDigit()
+                        .frame(width: 65, alignment: .trailing)
+                    Text(APITokenValuation.estimate(item).map { APITokenValuation.dollars($0) }
+                         ?? L10n.string("api_unpriced", language: language))
+                        .monospacedDigit()
+                        .frame(width: 105, alignment: .trailing)
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+            }
+        }
     }
 
     private var totalBackground: Color {
@@ -269,11 +322,11 @@ struct TokenTotalRow: View {
 
     private func component(_ label: String, _ value: Int?) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label).lineLimit(1)
+            Text(label).lineLimit(1).minimumScaleFactor(0.85)
             Text(value.map(formatTokens) ?? "—").fontWeight(.semibold).monospacedDigit()
         }
-        .font(.system(size: 9.5))
-        .foregroundStyle(.secondary)
+        .font(.system(size: 12))
+        .foregroundStyle(.primary)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

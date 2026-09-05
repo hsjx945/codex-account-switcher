@@ -38,6 +38,10 @@ struct AccountRow: View {
                         .font(.system(size: 9.5))
                         .foregroundStyle(.orange)
                         .lineLimit(2)
+                } else if accountTokenText == "—" {
+                    Text(L10n.string("token_today_pending", language: language))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.primary)
                 }
             }
 
