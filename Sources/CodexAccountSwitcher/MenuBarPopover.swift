@@ -81,15 +81,20 @@ struct MenuBarPopover: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 150)
             } else {
-                ViewThatFits(in: .vertical) {
+                // MenuBarExtra measures its content before assigning a height.
+                // ViewThatFits can choose a zero-height ScrollView in that pass.
+                // Small lists keep their intrinsic height; larger lists always
+                // receive an explicit, scrollable viewport.
+                if model.displayedAccounts.count <= 2 {
                     accountRows
                         .padding(9)
                         .fixedSize(horizontal: false, vertical: true)
+                } else {
                     ScrollView {
                         accountRows.padding(9)
                     }
+                    .frame(height: 520)
                 }
-                .frame(maxHeight: 520)
             }
 
             if model.settings.showsTokenActivity, !model.accounts.isEmpty {

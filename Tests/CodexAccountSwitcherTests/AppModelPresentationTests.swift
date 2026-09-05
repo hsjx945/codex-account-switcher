@@ -1,9 +1,41 @@
+import AppKit
+import SwiftUI
 import Foundation
 import Testing
 @testable import CodexAccountSwitcher
 
 @MainActor
 struct AppModelPresentationTests {
+    @Test func accountPopoverKeepsRowsVisibleDuringCompactSizing() async throws {
+        for count in [2, 5] {
+            let root = FileManager.default.temporaryDirectory.appending(path: "popover-size-check-\(UUID())")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
+            for index in 0..<count {
+                let profile = AccountProfile(id: UUID(), displayName: "Fixture \(index)", email: "fixture\(index)@example.com", accountID: "fixture-\(index)", createdAt: Date())
+                let home = try await store.createProfileDirectory(id: profile.id)
+                try Data("fixture-only".utf8).write(to: home.appending(path: "auth.json"))
+                try await store.addProfile(profile)
+                try await store.cacheWeeklyUsage(WeeklyUsage(remainingPercent: 50, resetsAt: nil), profileID: profile.id)
+            }
+            let model = AppModel(store: store, codex: CodexClient(locator: CodexExecutableLocator(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))), switchService: PresentationNoopSwitch(), operationGate: AccountOperationGate())
+            await model.start()
+            let hosting = NSHostingView(rootView: MenuBarPopover(model: model))
+            hosting.setFrameSize(NSSize(width: 420, height: 1))
+            hosting.layoutSubtreeIfNeeded()
+            let fitted = hosting.fittingSize
+            #expect(fitted.width == 420)
+            #expect(fitted.height > (count == 2 ? 250 : 560), "Account viewport collapsed for \(count) accounts: \(fitted)")
+            // The menu host can propose a compact height before opening.
+            // An unconstrained fitting-size check alone misses this regression.
+            let renderer = ImageRenderer(content: MenuBarPopover(model: model))
+            renderer.proposedSize = ProposedViewSize(width: 420, height: 100)
+            let rendered = try #require(renderer.cgImage)
+            #expect(rendered.height > (count == 2 ? 250 : 560), "Compact menu proposal collapsed the account viewport")
+
+        }
+    }
+
     @Test func postCommitCleanupWarningRefreshesActiveAccount() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "committed-ui-check-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
