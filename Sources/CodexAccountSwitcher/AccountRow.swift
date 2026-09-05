@@ -24,10 +24,6 @@ struct AccountRow: View {
             titleRow
             usageContent
 
-            if showsTokenActivity {
-                currentTokenContent
-            }
-
             if let warmupStatus {
                 warmupContent(warmupStatus)
             }
@@ -151,79 +147,6 @@ struct AccountRow: View {
                 .frame(width: 92, alignment: .trailing)
                 .help("\(L10n.string("resets", language: language)) \(resetsAt.map(resetText(for:)) ?? "—") (UTC+8)")
         }
-    }
-
-    @ViewBuilder
-    private var currentTokenContent: some View {
-        Divider()
-
-        VStack(alignment: .leading, spacing: 4) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tokenSummaryText)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(tokenStatusText)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .help(tokenSummaryText + " · " + tokenStatusText)
-        }
-    }
-
-    private var tokenSummaryText: String {
-        let todayKey = TokenActivity.dateKey()
-        if let tokenActivity, let todayTokens = tokenActivity.tokens(on: todayKey) {
-            return String(
-                format: L10n.string("token_official_daily_summary", language: language),
-                shortDate(todayKey),
-                formatTokens(todayTokens)
-            )
-        } else if let tokenActivity,
-                  let latestDate = tokenActivity.latestDateKey,
-                  let latestTokens = tokenActivity.tokens(on: latestDate) {
-            let recentSummary = String(
-                format: L10n.string("token_recent_daily_summary", language: language),
-                shortDate(latestDate),
-                formatTokens(latestTokens)
-            )
-            return L10n.string("token_no_data_today", language: language) + " · " + recentSummary
-        }
-        return L10n.string("token_no_data_today", language: language)
-    }
-
-    private var tokenStatusText: String {
-        if tokenRefreshPending {
-            let readingTitle = L10n.string("token_reading", language: language)
-            return readingTitle + " · " + lastReadText
-        }
-        if tokenRefreshError != nil {
-            let failedTitle = L10n.string("token_read_failed", language: language)
-            return failedTitle + " · " + lastReadText
-        }
-        return lastReadText
-    }
-
-    private var lastReadText: String {
-        guard let tokenFetchedAt else {
-            return L10n.string("token_read_time_unknown", language: language)
-        }
-        return String(
-            format: L10n.string("token_last_successful_read", language: language),
-            BeijingDateTimeFormatter.string(from: tokenFetchedAt, language: language)
-        )
-    }
-
-    private func shortDate(_ dateKey: String) -> String {
-        let parts = dateKey.split(separator: "-")
-        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]) else {
-            return dateKey
-        }
-        let usesChinese = language == .simplifiedChinese
-            || (language == .system && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
-        return usesChinese ? "\(month)月\(day)日" : "\(month)/\(day)"
     }
 
     private func warmupContent(_ record: WarmupRecord) -> some View {

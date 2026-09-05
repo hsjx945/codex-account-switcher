@@ -135,7 +135,7 @@ final class AppModel: ObservableObject {
     var menuBarQuota: MenuBarQuotaPresentation {
         MenuBarQuotaPresentation(
             state: activeAccountID.flatMap { usageStates[$0] },
-            identityConfirmed: activeIdentityConfirmed
+            identityConflict: activeIdentityState == .mismatch
         )
     }
 

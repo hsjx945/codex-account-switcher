@@ -625,8 +625,8 @@ struct MenuBarQuotaPresentation: Equatable {
     let title: String
     let isStale: Bool
 
-    init(state: UsageViewState?, identityConfirmed: Bool) {
-        guard identityConfirmed, let usage = state?.displayedUsage else {
+    init(state: UsageViewState?, identityConflict: Bool) {
+        guard !identityConflict, let usage = state?.displayedUsage else {
             title = "—"
             isStale = false
             return

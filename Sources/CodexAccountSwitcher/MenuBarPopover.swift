@@ -257,48 +257,12 @@ struct TokenTotalRow: View {
                 component(L10n.string("local_token_output", language: language), usage?.output)
             }
 
-            if !models.isEmpty {
-                DisclosureGroup(isExpanded: $modelsExpanded) {
-                    if models.count <= 5 {
-                        modelRows.fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        ScrollView { modelRows }
-                            .frame(height: 96)
-                    }
-                } label: {
-                    Text(L10n.string("local_token_models", language: language))
-                        .font(.system(size: 10.5, weight: .medium))
-                }
-            }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(statusText)
-                Text(detailText)
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-            .lineLimit(4)
-            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 10)
         .background(totalBackground)
-    }
-
-    private var modelRows: some View {
-        VStack(spacing: 3) {
-            ForEach(models) { item in
-                HStack {
-                    Text(item.model ?? L10n.string("local_token_unknown_model", language: language))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(formatTokens(item.usage.total)).monospacedDigit()
-                }
-                .font(.system(size: 10))
-                .frame(minHeight: 18)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .help(statusText + "\n" + detailText)
     }
 
     private var totalBackground: Color {

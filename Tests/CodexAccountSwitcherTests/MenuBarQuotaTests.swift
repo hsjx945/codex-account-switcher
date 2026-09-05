@@ -18,24 +18,24 @@ struct MenuBarQuotaTests {
 
     @Test func displaysWeeklyQuotaIndependentOfFiveHourQuota() {
         let usage = WeeklyUsage(remainingPercent: 50, resetsAt: nil, fiveHourRemainingPercent: 100)
-        #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConfirmed: true).title == "50%")
+        #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false).title == "50%")
     }
 
-    @Test func missingOrUnverifiedQuotaIsNeverReportedAsZero() {
+    @Test func missingOrConflictingQuotaIsNeverReportedAsZero() {
         let states: [UsageViewState?] = [nil, .idle, .unavailable("offline")]
         for state in states {
-            #expect(MenuBarQuotaPresentation(state: state, identityConfirmed: true).title == "—")
+            #expect(MenuBarQuotaPresentation(state: state, identityConflict: false).title == "—")
         }
         let usage = WeeklyUsage(remainingPercent: 50, resetsAt: nil)
-        #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConfirmed: false).title == "—")
+        #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: true).title == "—")
     }
 
     @Test func marksStaleQuotaAndPreservesActualZero() {
         let usage = WeeklyUsage(remainingPercent: 0, resetsAt: nil)
-        let fresh = MenuBarQuotaPresentation(state: .loaded(usage), identityConfirmed: true)
+        let fresh = MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false)
         #expect(fresh.title == "0%")
         #expect(!fresh.isStale)
-        let stale = MenuBarQuotaPresentation(state: .stale(usage, "offline"), identityConfirmed: true)
+        let stale = MenuBarQuotaPresentation(state: .stale(usage, "offline"), identityConflict: false)
         #expect(stale.title == "0%!")
         #expect(stale.isStale)
     }
@@ -43,7 +43,7 @@ struct MenuBarQuotaTests {
     @Test func clampsOutOfRangeCachedValues() {
         for (input, expected) in [(-3, "0%"), (103, "100%")] {
             let usage = WeeklyUsage(remainingPercent: input, resetsAt: nil)
-            #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConfirmed: true).title == expected)
+            #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false).title == expected)
         }
     }
 }

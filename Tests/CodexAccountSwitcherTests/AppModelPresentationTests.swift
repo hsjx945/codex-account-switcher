@@ -6,28 +6,20 @@ import Testing
 
 @MainActor
 struct AppModelPresentationTests {
-    @Test func expandingLocalModelDetailsKeepsAConcreteViewportAndPopoverContent() throws {
-        let usage = LocalTokenComponents(total: 120, uncachedInput: 40, cachedInput: 60, output: 20)
-        func row(expanded: Bool) -> TokenTotalRow {
-            TokenTotalRow(
-                title: "Today's Tokens · This Mac",
-                usage: usage,
-                models: [LocalModelTokenUsage(model: "fixture-model", usage: usage)],
-                language: .english,
-                statusText: "Updated through Sep 5 12:00:00",
-                detailText: "Local fixture",
-                retryTitle: "Refresh",
-                isRefreshing: false,
-                initiallyExpanded: expanded,
-                onRetry: {}
-            )
-        }
-        let collapsed = NSHostingView(rootView: row(expanded: false).frame(width: 420))
-        let expanded = NSHostingView(rootView: row(expanded: true).frame(width: 420))
-        collapsed.layoutSubtreeIfNeeded(); expanded.layoutSubtreeIfNeeded()
-        #expect(expanded.fittingSize.height >= collapsed.fittingSize.height + 18)
-        #expect(expanded.fittingSize.height < 300, "model details must stay bounded inside the popover")
-        #expect(ImageRenderer(content: row(expanded: true).frame(width: 420)).cgImage != nil)
+    @Test func unavailableIdentityRetainsSelectedAccountQuota() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "quota-identity-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
+        let profile = AccountProfile(id: UUID(), displayName: "Fixture", email: "fixture@example.com", accountID: "fixture", createdAt: Date())
+        let home = try await store.createProfileDirectory(id: profile.id)
+        try Data("fixture-only".utf8).write(to: home.appending(path: "auth.json"))
+        try await store.addProfile(profile)
+        try await store.cacheWeeklyUsage(WeeklyUsage(remainingPercent: 91, resetsAt: nil), profileID: profile.id)
+        let model = AppModel(store: store, codex: CodexClient(locator: CodexExecutableLocator(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))), switchService: PresentationNoopSwitch(), operationGate: AccountOperationGate())
+        await model.start()
+        #expect(model.activeIdentityState == .unavailable)
+        #expect(model.activeRemainingPercent == 91)
+        #expect(model.menuBarQuota.title == "91%")
     }
 
     @Test func publishesInjectedLocalTokensWithNoSavedAccountsAndStopsMonitoring() async throws {
