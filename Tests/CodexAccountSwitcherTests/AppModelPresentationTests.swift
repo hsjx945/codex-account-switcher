@@ -6,6 +6,50 @@ import Testing
 
 @MainActor
 struct AppModelPresentationTests {
+    @Test func expandingLocalModelDetailsKeepsAConcreteViewportAndPopoverContent() throws {
+        let usage = LocalTokenComponents(total: 120, uncachedInput: 40, cachedInput: 60, output: 20)
+        func row(expanded: Bool) -> TokenTotalRow {
+            TokenTotalRow(
+                title: "Today's Tokens · This Mac",
+                usage: usage,
+                models: [LocalModelTokenUsage(model: "fixture-model", usage: usage)],
+                language: .english,
+                statusText: "Updated through Sep 5 12:00:00",
+                detailText: "Local fixture",
+                retryTitle: "Refresh",
+                isRefreshing: false,
+                initiallyExpanded: expanded,
+                onRetry: {}
+            )
+        }
+        let collapsed = NSHostingView(rootView: row(expanded: false).frame(width: 420))
+        let expanded = NSHostingView(rootView: row(expanded: true).frame(width: 420))
+        collapsed.layoutSubtreeIfNeeded(); expanded.layoutSubtreeIfNeeded()
+        #expect(expanded.fittingSize.height >= collapsed.fittingSize.height + 18)
+        #expect(expanded.fittingSize.height < 300, "model details must stay bounded inside the popover")
+        #expect(ImageRenderer(content: row(expanded: true).frame(width: 420)).cgImage != nil)
+    }
+
+    @Test func publishesInjectedLocalTokensWithNoSavedAccountsAndStopsMonitoring() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "app-local-token-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessions = root.appending(path: "sessions", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let log = "{\"timestamp\":\"\(timestamp)\",\"type\":\"token_usage_record\",\"payload\":{\"response_id\":\"fixture-response\",\"usage\":{\"total_tokens\":123}}}\n"
+        try Data(log.utf8).write(to: sessions.appending(path: "fixture.jsonl"))
+        let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
+        let scanner = LocalSessionUsageScanner(codexHome: root)
+        let model = AppModel(store: store, codex: CodexClient(), switchService: PresentationNoopSwitch(), operationGate: AccountOperationGate(), localUsageScanner: scanner)
+        await model.start()
+        for _ in 0..<50 where model.reportedTokenTotal != 123 { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.accounts.isEmpty)
+        #expect(model.reportedTokenTotal == 123)
+        #expect(await scanner.isMonitoring())
+        await model.stopLocalTokenMonitoring()
+        #expect(!(await scanner.isMonitoring()))
+    }
+
     @Test func accountPopoverKeepsRowsVisibleDuringCompactSizing() async throws {
         for count in [2, 5] {
             let root = FileManager.default.temporaryDirectory.appending(path: "popover-size-check-\(UUID())")

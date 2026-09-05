@@ -457,36 +457,22 @@ struct CoreChecks {
         let scanSessions = scanHome.appending(path: "sessions", directoryHint: .isDirectory)
         try fileManager.createDirectory(at: scanSessions, withIntermediateDirectories: true)
         let scanFixture = scanSessions.appending(path: "usage.jsonl")
-        try Data("""
-        {"timestamp":"2026-09-04T09:00:00Z","type":"turn_context","payload":{"model":"gpt-5.6-sol"}}
+        try Data(("""
+        {"timestamp":"2026-09-04T09:00:00Z","type":"session_meta","payload":{"id":"core-session"}}
         {"timestamp":"2026-09-04T09:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100}}}}
         {"timestamp":"2026-09-04T09:02:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100}}}}
-        {"timestamp":"2026-09-04T09:03:00Z","type":"turn_context","payload":{"model":"gpt-5.6-luna"}}
         {"timestamp":"2026-09-04T09:04:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":160}}}}
-        """.utf8).write(to: scanFixture)
+        """ + "\n").utf8).write(to: scanFixture)
         let scanNow = try requireDate("2026-09-04T12:00:00Z")
         var utcCalendar = Calendar(identifier: .gregorian)
         utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let modelSummary = await LocalSessionUsageScanner(codexHome: scanHome).scan(
+        let localSnapshot = await LocalSessionUsageScanner(codexHome: scanHome).refresh(
             now: scanNow,
             calendar: utcCalendar
         )
         try require(
-            modelSummary.models == [
-                LocalModelTokenUsage(
-                    model: "gpt-5.6-sol",
-                    todayTokens: 100,
-                    sevenDayTokens: 100,
-                    thirtyDayTokens: 100
-                ),
-                LocalModelTokenUsage(
-                    model: "gpt-5.6-luna",
-                    todayTokens: 60,
-                    sevenDayTokens: 60,
-                    thirtyDayTokens: 60
-                ),
-            ],
-            "local model usage uses cumulative deltas and accepts both ISO timestamp forms"
+            localSnapshot.todayTokens == 160,
+            "local token usage uses cumulative deltas and accepts both ISO timestamp forms"
         )
 
         let activeHome = root.appending(path: "active")

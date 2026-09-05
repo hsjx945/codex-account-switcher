@@ -70,8 +70,43 @@ struct RenderUIChecks {
                     throw CocoaError(.fileWriteUnknown)
                 }
                 try png.write(to: output.appending(path: "accounts-\(name)-\(theme).png"))
+
+                let complete = LocalTokenComponents(total: 12_345, uncachedInput: 3_000, cachedInput: 8_000, output: 1_345)
+                let missing = LocalTokenComponents(total: 9, uncachedInput: nil, cachedInput: nil, output: nil)
+                let localStates: [(LocalTokenComponents?, [LocalModelTokenUsage], String, Bool)] = [
+                    (nil, [], L10n.string("token_scanning", language: language), false),
+                    (missing, [LocalModelTokenUsage(model: nil, usage: missing)], L10n.string("token_local_no_events_today", language: language), true),
+                    (complete, [LocalModelTokenUsage(model: "gpt-5.6-sol", usage: complete)], String(format: L10n.string("token_local_last_event", language: language), BeijingDateTimeFormatter.stringWithSeconds(from: reset, language: language)), true),
+                    (nil, [], String(format: L10n.string("token_local_failed", language: language), "fixture unavailable"), false),
+                ]
+                let tokenContent = VStack(spacing: 1) {
+                    ForEach(localStates.indices, id: \.self) { stateIndex in
+                        TokenTotalRow(
+                            title: L10n.string("token_total_local_today", language: language),
+                            usage: localStates[stateIndex].0,
+                            models: localStates[stateIndex].1,
+                            language: language,
+                            statusText: localStates[stateIndex].2,
+                            detailText: L10n.string("token_total_local_hint", language: language),
+                            retryTitle: L10n.string("refresh", language: language),
+                            isRefreshing: stateIndex == 0,
+                            initiallyExpanded: localStates[stateIndex].3,
+                            onRetry: {}
+                        )
+                    }
+                }
+                .frame(width: 420)
+                .environment(\.colorScheme, scheme)
+                let tokenRenderer = ImageRenderer(content: tokenContent)
+                tokenRenderer.scale = 2
+                guard let tokenImage = tokenRenderer.nsImage,
+                      let tokenTIFF = tokenImage.tiffRepresentation,
+                      let tokenPNG = NSBitmapImageRep(data: tokenTIFF)?.representation(using: .png, properties: [:]) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                try tokenPNG.write(to: output.appending(path: "local-token-states-\(name)-\(theme).png"))
             }
         }
-        print("Rendered four SwiftUI account layouts with synthetic data")
+        print("Rendered account layouts and four local-token states with synthetic data")
     }
 }

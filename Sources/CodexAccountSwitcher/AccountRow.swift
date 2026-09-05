@@ -158,20 +158,6 @@ struct AccountRow: View {
         Divider()
 
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L10n.string("today_realtime_token", language: language))
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 8)
-
-                Text(tokenMainValue)
-                    .font(.system(size: 14, weight: .bold).monospacedDigit())
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(tokenSummaryText)
                     .lineLimit(2)
@@ -185,12 +171,6 @@ struct AccountRow: View {
             .fixedSize(horizontal: false, vertical: true)
             .help(tokenSummaryText + " · " + tokenStatusText)
         }
-    }
-
-    private var tokenMainValue: String {
-        // Official daily buckets do not prove real-time usage. Keep this
-        // primary value unavailable even when a daily bucket is present.
-        return L10n.string("token_realtime_unavailable_short", language: language)
     }
 
     private var tokenSummaryText: String {

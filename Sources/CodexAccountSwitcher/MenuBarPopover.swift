@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarPopover: View {
     @ObservedObject var model: AppModel
+    var initiallyExpandsLocalModels = false
     @Environment(\.colorScheme) private var colorScheme
     @State private var page: PopoverPage = .accounts
 
@@ -97,19 +98,18 @@ struct MenuBarPopover: View {
                 }
             }
 
-            if model.settings.showsTokenActivity, !model.accounts.isEmpty {
+            if model.settings.showsTokenActivity {
                 TokenTotalRow(
-                    title: model.text("token_total_realtime_unavailable"),
-                    tokens: model.reportedTokenTotal,
-                    coverageText: String(
-                        format: model.text("token_total_coverage"),
-                        model.reportedTokenCoverage.0,
-                        model.reportedTokenCoverage.1
-                    ),
-                    timezoneHint: model.text("token_today_timezone_hint"),
+                    title: model.text("token_total_local_today"),
+                    usage: model.localTokenSnapshot?.usage,
+                    models: model.localTokenSnapshot?.models ?? [],
+                    language: model.settings.language,
+                    statusText: localTokenStatusText,
+                    detailText: model.text("token_total_local_hint"),
                     retryTitle: model.text("refresh"),
-                    isRefreshing: !model.tokenRefreshPending.isEmpty,
-                    onRetry: model.refreshWeeklyUsage
+                    isRefreshing: model.localTokenSnapshot == nil,
+                    initiallyExpanded: initiallyExpandsLocalModels,
+                    onRetry: model.refreshLocalTokenUsage
                 )
             }
 
@@ -137,6 +137,17 @@ struct MenuBarPopover: View {
                 .frame(width: 42)
             }
             .padding(8)
+        }
+    }
+
+    private var localTokenStatusText: String {
+        guard let snapshot = model.localTokenSnapshot else { return model.text("token_scanning") }
+        switch snapshot.state {
+        case .idle, .monitoring:
+            guard let latest = snapshot.latestEventAt else { return model.text("token_local_no_events_today") }
+            return String(format: model.text("token_local_last_event"), BeijingDateTimeFormatter.stringWithSeconds(from: latest, language: model.settings.language))
+        case let .failed(message):
+            return String(format: model.text("token_local_failed"), message)
         }
     }
 
@@ -182,15 +193,42 @@ struct MenuBarPopover: View {
 
 }
 
-private struct TokenTotalRow: View {
+struct TokenTotalRow: View {
     let title: String
-    let tokens: Int?
-    let coverageText: String
-    let timezoneHint: String
+    let usage: LocalTokenComponents?
+    let models: [LocalModelTokenUsage]
+    let language: AppLanguage
+    let statusText: String
+    let detailText: String
     let retryTitle: String
     let isRefreshing: Bool
     let onRetry: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @State private var modelsExpanded: Bool
+
+    init(
+        title: String,
+        usage: LocalTokenComponents?,
+        models: [LocalModelTokenUsage],
+        language: AppLanguage,
+        statusText: String,
+        detailText: String,
+        retryTitle: String,
+        isRefreshing: Bool,
+        initiallyExpanded: Bool = false,
+        onRetry: @escaping () -> Void
+    ) {
+        self.title = title
+        self.usage = usage
+        self.models = models
+        self.language = language
+        self.statusText = statusText
+        self.detailText = detailText
+        self.retryTitle = retryTitle
+        self.isRefreshing = isRefreshing
+        self.onRetry = onRetry
+        _modelsExpanded = State(initialValue: initiallyExpanded)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -201,7 +239,7 @@ private struct TokenTotalRow: View {
 
                 Spacer(minLength: 8)
 
-                Text(tokens.map(formatTokens) ?? "—")
+                Text(usage.map { formatTokens($0.total) } ?? "—")
                     .font(.system(size: 15, weight: .bold).monospacedDigit())
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -213,18 +251,54 @@ private struct TokenTotalRow: View {
                     .disabled(isRefreshing)
             }
 
+            HStack(spacing: 12) {
+                component(L10n.string("local_token_uncached_input", language: language), usage?.uncachedInput)
+                component(L10n.string("local_token_cached_read", language: language), usage?.cachedInput)
+                component(L10n.string("local_token_output", language: language), usage?.output)
+            }
+
+            if !models.isEmpty {
+                DisclosureGroup(isExpanded: $modelsExpanded) {
+                    if models.count <= 5 {
+                        modelRows.fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        ScrollView { modelRows }
+                            .frame(height: 96)
+                    }
+                } label: {
+                    Text(L10n.string("local_token_models", language: language))
+                        .font(.system(size: 10.5, weight: .medium))
+                }
+            }
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(coverageText)
-                Text(timezoneHint)
+                Text(statusText)
+                Text(detailText)
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
-            .lineLimit(2)
+            .lineLimit(4)
             .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 10)
         .background(totalBackground)
+    }
+
+    private var modelRows: some View {
+        VStack(spacing: 3) {
+            ForEach(models) { item in
+                HStack {
+                    Text(item.model ?? L10n.string("local_token_unknown_model", language: language))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(formatTokens(item.usage.total)).monospacedDigit()
+                }
+                .font(.system(size: 10))
+                .frame(minHeight: 18)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var totalBackground: Color {
@@ -241,6 +315,16 @@ private struct TokenTotalRow: View {
             return String(format: "%.1fK", Double(tokens) / 1_000)
         }
         return String(tokens)
+    }
+
+    private func component(_ label: String, _ value: Int?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).lineLimit(1)
+            Text(value.map(formatTokens) ?? "—").fontWeight(.semibold).monospacedDigit()
+        }
+        .font(.system(size: 9.5))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

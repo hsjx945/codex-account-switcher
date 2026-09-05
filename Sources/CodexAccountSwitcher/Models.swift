@@ -508,6 +508,17 @@ enum BeijingDateTimeFormatter {
         formatter.dateFormat = usesChinese ? "M月d日 HH:mm" : "MMM d HH:mm"
         return formatter.string(from: date)
     }
+
+    static func stringWithSeconds(from date: Date, language: AppLanguage = .simplifiedChinese) -> String {
+        let usesChinese = language == .simplifiedChinese
+            || (language == .system && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: usesChinese ? "zh_CN" : "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = usesChinese ? "M月d日 HH:mm:ss" : "MMM d HH:mm:ss"
+        return formatter.string(from: date)
+    }
 }
 
 enum SwitchStage: String, CaseIterable, Sendable {

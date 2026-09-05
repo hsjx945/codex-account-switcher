@@ -43,10 +43,6 @@ enum ActiveIdentityVerificationState: Equatable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    // account/usage/read is a daily aggregate and has no server freshness
-    // timestamp. Keep real-time totals fail-closed until a source with an
-    // explicit per-account real-time contract is integrated.
-    private static let realtimeTokenSourceAvailable = false
     @Published private(set) var accounts: [AccountProfile] = []
     @Published private(set) var activeAccountID: UUID?
     @Published private(set) var usageStates: [UUID: UsageViewState] = [:]
@@ -55,6 +51,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var tokenRefreshPending: Set<UUID> = []
     @Published private(set) var tokenActivityRefreshFinished = false
     @Published private(set) var tokenRefreshErrors: [UUID: String] = [:]
+    @Published private(set) var localTokenSnapshot: LocalTokenUsageSnapshot?
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
     @Published private(set) var isMutating = false
@@ -72,6 +69,7 @@ final class AppModel: ObservableObject {
     private let taskStateReader: any DesktopTaskStateReading
     private let notificationService: any QuotaNotificationServicing
     private let operationGate: AccountOperationGate
+    private let localUsageScanner: LocalSessionUsageScanner?
     private var hasStarted = false
     private var startTask: Task<Void, Never>?
     private var usageRefreshTask: Task<Void, Never>?
@@ -89,7 +87,8 @@ final class AppModel: ObservableObject {
         desktop: any DesktopControlling = DesktopController(),
         taskStateReader: (any DesktopTaskStateReading)? = nil,
         notificationService: any QuotaNotificationServicing = InertQuotaNotificationService(),
-        loginService: (any LoginServicing)? = nil
+        loginService: (any LoginServicing)? = nil,
+        localUsageScanner: LocalSessionUsageScanner? = nil
     ) {
         self.store = store
         self.codex = codex
@@ -99,6 +98,7 @@ final class AppModel: ObservableObject {
         self.desktop = desktop
         self.taskStateReader = taskStateReader ?? codex
         self.notificationService = notificationService
+        self.localUsageScanner = localUsageScanner
     }
 
     static func live() -> AppModel {
@@ -119,7 +119,8 @@ final class AppModel: ObservableObject {
             ),
             operationGate: operationGate,
             desktop: desktop,
-            notificationService: QuotaNotificationService()
+            notificationService: QuotaNotificationService(),
+            localUsageScanner: LocalSessionUsageScanner()
         )
     }
 
@@ -162,20 +163,7 @@ final class AppModel: ObservableObject {
     }
 
     var reportedTokenTotal: Int? {
-        // account/usage/read returns daily aggregates without a real-time
-        // freshness guarantee. Keep the aggregate unavailable until a source
-        // explicitly proves real-time semantics for every account.
-        guard !accounts.isEmpty else { return nil }
-        let today = TokenActivity.dateKey()
-        guard tokenRefreshPending.isEmpty,
-              tokenRefreshErrors.isEmpty,
-              tokenActivities.count >= accounts.count,
-              Self.realtimeTokenSourceAvailable,
-              accounts.allSatisfy({ tokenActivities[$0.id] != nil })
-        else { return nil }
-        let values = accounts.compactMap { tokenActivities[$0.id]?.tokens(on: today) }
-        guard values.count == accounts.count else { return nil }
-        return TokenActivity.checkedTokenTotal(values)
+        localTokenSnapshot?.todayTokens
     }
 
     var reportedTokenCoverage: (Int, Int) {
@@ -228,6 +216,9 @@ final class AppModel: ObservableObject {
     private func performStart() async {
         guard !hasStarted else { return }
         hasStarted = true
+        await localUsageScanner?.start { [weak self] snapshot in
+            self?.localTokenSnapshot = snapshot
+        }
         refreshLaunchAtLoginStatus()
         do {
             let recoveryWarning: OperationError?
@@ -295,6 +286,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func refreshLocalTokenUsage() {
+        Task { [weak self] in
+            guard let self else { return }
+            self.localTokenSnapshot = await self.localUsageScanner?.refresh()
+        }
+    }
+
+    func stopLocalTokenMonitoring() async {
+        await localUsageScanner?.stop()
+    }
+
     func waitForWeeklyUsageRefresh() async {
         await usageRefreshTask?.value
     }
@@ -310,6 +312,7 @@ final class AppModel: ObservableObject {
         isBackgroundUsageRefreshEnabled = false
         nextUsageRefreshTask?.cancel()
         nextUsageRefreshTask = nil
+        Task { [localUsageScanner] in await localUsageScanner?.stop() }
     }
 
     private func scheduleNextWeeklyUsageRefresh() {
