@@ -48,7 +48,7 @@ struct AppModelPresentationTests {
         renderer.scale = 2
         let cgImage = try #require(renderer.cgImage)
         #expect(cgImage.width == 840)
-        #expect(cgImage.height > 450)
+        #expect(cgImage.height > 300)
         if let path = ProcessInfo.processInfo.environment["SWITCHER_TEST_RENDER_PATH"] {
             let rep = NSBitmapImageRep(cgImage: cgImage)
             try #require(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))

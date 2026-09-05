@@ -625,7 +625,7 @@ struct MenuBarQuotaPresentation: Equatable {
     let title: String
     let isStale: Bool
 
-    init(state: UsageViewState?, identityConflict: Bool) {
+    init(state: UsageViewState?, identityConflict: Bool, showsFiveHour: Bool = true) {
         guard !identityConflict, let usage = state?.displayedUsage else {
             title = "—"
             isStale = false
@@ -633,6 +633,6 @@ struct MenuBarQuotaPresentation: Equatable {
         }
         isStale = state?.refreshError != nil
         let fiveHour = usage.fiveHourRemainingPercent.map { "\(min(max($0, 0), 100))%" } ?? "—"
-        title = "\(fiveHour) / \(min(max(usage.remainingPercent, 0), 100))%" + (isStale ? "!" : "")
+        title = (showsFiveHour ? "\(fiveHour) / " : "") + "\(min(max(usage.remainingPercent, 0), 100))%" + (isStale ? "!" : "")
     }
 }

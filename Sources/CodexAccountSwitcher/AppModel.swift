@@ -132,10 +132,15 @@ final class AppModel: ObservableObject {
         String(format: text(key), argument)
     }
 
+    var activeShowsFiveHour: Bool {
+        accounts.first { $0.id == activeAccountID }?.supportsFiveHourUsage ?? true
+    }
+
     var menuBarQuota: MenuBarQuotaPresentation {
         MenuBarQuotaPresentation(
             state: activeAccountID.flatMap { usageStates[$0] },
-            identityConflict: activeIdentityState == .mismatch
+            identityConflict: activeIdentityState == .mismatch,
+            showsFiveHour: activeShowsFiveHour
         )
     }
 

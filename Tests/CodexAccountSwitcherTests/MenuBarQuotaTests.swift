@@ -3,6 +3,12 @@ import Testing
 @testable import CodexAccountSwitcher
 
 struct MenuBarQuotaTests {
+    @Test func proHidesEvenCachedFiveHourQuota() {
+        let usage = WeeklyUsage(remainingPercent: 77, resetsAt: nil, fiveHourRemainingPercent: 100)
+        #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false, showsFiveHour: false).title == "77%")
+        #expect(MenuBarQuotaPresentation(state: .stale(usage, "offline"), identityConflict: false, showsFiveHour: false).title == "77%!")
+    }
+
     @Test func rejectsOverflowingOrNegativeTokenTotals() {
         #expect(TokenActivity.checkedTokenTotal([Int.max, 1]) == nil)
         #expect(TokenActivity.checkedTokenTotal([-1, 2]) == nil)

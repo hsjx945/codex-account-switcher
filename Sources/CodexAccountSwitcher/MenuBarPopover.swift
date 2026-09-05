@@ -219,7 +219,7 @@ struct TokenTotalRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
 
                 Spacer(minLength: 8)
@@ -232,12 +232,6 @@ struct TokenTotalRow: View {
                 if isRefreshing {
                     ProgressView().controlSize(.mini)
                 }
-            }
-
-            HStack(spacing: 12) {
-                component(L10n.string("local_token_uncached_input", language: language), usage?.uncachedInput)
-                component(L10n.string("local_token_cached_read", language: language), usage?.cachedInput)
-                component(L10n.string("local_token_output", language: language), usage?.output)
             }
 
             if !models.isEmpty {
@@ -262,23 +256,17 @@ struct TokenTotalRow: View {
                     Text(APITokenValuation.dollars(APITokenValuation.subtotal(models)))
                         .monospacedDigit()
                 }
-                .font(.system(size: 13, weight: .semibold))
-                Text(L10n.string("api_estimate_note", language: language))
-                    .font(.system(size: 12))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help(L10n.string("api_estimate_detail", language: language))
+                .font(.system(size: 15, weight: .semibold))
+
             }
 
-            Text(statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 10)
         .background(totalBackground)
         .foregroundStyle(.primary)
-        .help(statusText + "\n" + detailText)
+        .help(statusText + "\n" + detailText + "\n" + L10n.string("api_estimate_detail", language: language))
     }
 
     private var modelRows: some View {
@@ -298,7 +286,7 @@ struct TokenTotalRow: View {
                         .monospacedDigit()
                         .frame(width: 105, alignment: .trailing)
                 }
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.primary)
             }
         }
