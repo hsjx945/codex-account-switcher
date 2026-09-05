@@ -6,6 +6,7 @@ struct MenuBarPopover: View {
     var initiallyExpandsLocalModels = false
     @Environment(\.colorScheme) private var colorScheme
     @State private var page: PopoverPage = .accounts
+    @State private var pendingSwitch: AccountProfile?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +33,19 @@ struct MenuBarPopover: View {
             case let .switching(account):
                 SwitchingPage(model: model, account: account)
             }
+        }
+        .alert(
+            pendingSwitch.map { model.format("switch_title", $0.preferredLabel) } ?? model.text("confirm_switch"),
+            isPresented: Binding(get: { pendingSwitch != nil }, set: { if !$0 { pendingSwitch = nil } }),
+            presenting: pendingSwitch
+        ) { account in
+            Button(model.text("cancel"), role: .cancel) { pendingSwitch = nil }
+            Button(model.text("confirm_switch")) {
+                pendingSwitch = nil
+                switchAccount(account)
+            }
+        } message: { _ in
+            Text(model.text("switch_body"))
         }
         .frame(width: 420)
         .background(popoverBackground)
@@ -149,7 +163,7 @@ struct MenuBarPopover: View {
                     if account.id == model.activeAccountID {
                         NSApp.keyWindow?.close()
                     } else {
-                        switchAccount(account)
+                        pendingSwitch = account
                     }
                 } label: {
                     AccountRow(
@@ -217,20 +231,20 @@ struct TokenTotalRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-            Spacer(minLength: 0)
-            Text(usage.map { TokenAmountFormatter.compact($0.total) } ?? "—")
-                .font(.system(size: 22, weight: .bold).monospacedDigit())
-            Text(APITokenValuation.dollars(APITokenValuation.subtotal(models))
-                 + (hasUnpricedUsage ? "*" : ""))
-                .font(.system(size: 17, weight: .semibold).monospacedDigit())
+        HStack(spacing: 10) {
+            summaryTile(
+                label: title,
+                value: usage.map { TokenAmountFormatter.compact($0.total) } ?? "—",
+                color: .blue
+            )
+            summaryTile(
+                label: L10n.string(hasUnpricedUsage ? "api_partial_value" : "api_estimated_value", language: language),
+                value: APITokenValuation.dollars(APITokenValuation.subtotal(models)),
+                color: .orange
+            )
             if isRefreshing { ProgressView().controlSize(.mini) }
         }
-        .lineLimit(1)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(12)
         .background(totalBackground)
         .foregroundStyle(.primary)
         .contentShape(Rectangle())
@@ -242,6 +256,9 @@ struct TokenTotalRow: View {
                     guard !Task.isCancelled else { return }
                     modelsExpanded = true
                 }
+            } else {
+                modelsExpanded = false
+                hoverTask = nil
             }
         }
         .onDisappear {
@@ -255,6 +272,23 @@ struct TokenTotalRow: View {
         .popover(isPresented: $modelsExpanded, arrowEdge: .trailing) {
             details
         }
+    }
+
+    private func summaryTile(label: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+            Text(value)
+                .font(.system(size: 22, weight: .bold).monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(color.opacity(0.18)))
     }
 
     private var hasUnpricedUsage: Bool {

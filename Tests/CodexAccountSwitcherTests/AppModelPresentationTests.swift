@@ -48,7 +48,7 @@ struct AppModelPresentationTests {
         renderer.scale = 2
         let cgImage = try #require(renderer.cgImage)
         #expect(cgImage.width == 840)
-        #expect(cgImage.height < 180)
+        #expect(cgImage.height < 250)
         let detailRenderer = ImageRenderer(content: row.details.background(Color.white).environment(\.colorScheme, .light))
         detailRenderer.scale = 2
         let detailImage = try #require(detailRenderer.cgImage)

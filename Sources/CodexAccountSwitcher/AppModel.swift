@@ -849,7 +849,9 @@ final class AppModel: ObservableObject {
         case .noAction:
             return
         case .direct:
-            await switchAccount(to: profileID)
+            if confirmNotificationSwitch(title: text("confirm_switch"), body: text("switch_body")) {
+                await switchAccount(to: profileID)
+            }
         case let .confirmActive(count):
             if confirmNotificationSwitch(
                 title: text("task_switch_active_title"),
