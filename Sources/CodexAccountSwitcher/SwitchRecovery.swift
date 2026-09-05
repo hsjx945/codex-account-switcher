@@ -113,6 +113,7 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
     private let baseURL: URL
     private let fileManager: FileManager
     private let keyProvider: any RollbackKeyProviding
+    private var cachedKey: SymmetricKey?
 
     init(
         baseURL: URL? = nil,
@@ -132,6 +133,15 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
         self.keyProvider = keyProvider
     }
 
+    // Reuse only a key already released by Keychain during this process.
+    // Never change the item's ACL or substitute a different key on denial.
+    private func rollbackKey() throws -> SymmetricKey {
+        if let cachedKey { return cachedKey }
+        let key = try keyProvider.loadOrCreateKey()
+        cachedKey = key
+        return key
+    }
+
     private var journalURL: URL { baseURL.appending(path: "switch-journal.json") }
 
     func prepare(
@@ -144,7 +154,7 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
         let transactionID = UUID()
         let backupFileName = "rollback-\(transactionID.uuidString).sealed"
         let backupURL = baseURL.appending(path: backupFileName)
-        let key = try keyProvider.loadOrCreateKey()
+        let key = try rollbackKey()
         let sealed = try AES.GCM.seal(originalCredential, using: key)
         guard let combined = sealed.combined else {
             throw SwitchRecoveryError.encryptedBackupInvalid
@@ -191,7 +201,7 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
         }
         do {
             let box = try AES.GCM.SealedBox(combined: Data(contentsOf: url))
-            return try AES.GCM.open(box, using: keyProvider.loadOrCreateKey())
+            return try AES.GCM.open(box, using: rollbackKey())
         } catch let error as SwitchRecoveryError {
             throw error
         } catch {

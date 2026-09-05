@@ -19,7 +19,7 @@ struct AppModelPresentationTests {
         await model.start()
         #expect(model.activeIdentityState == .unavailable)
         #expect(model.activeRemainingPercent == 91)
-        #expect(model.menuBarQuota.title == "91%")
+        #expect(model.menuBarQuota.title == "— / 91%")
     }
 
     @Test func publishesInjectedLocalTokensWithNoSavedAccountsAndStopsMonitoring() async throws {

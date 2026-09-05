@@ -632,6 +632,7 @@ struct MenuBarQuotaPresentation: Equatable {
             return
         }
         isStale = state?.refreshError != nil
-        title = "\(min(max(usage.remainingPercent, 0), 100))%" + (isStale ? "!" : "")
+        let fiveHour = usage.fiveHourRemainingPercent.map { "\(min(max($0, 0), 100))%" } ?? "—"
+        title = "\(fiveHour) / \(min(max(usage.remainingPercent, 0), 100))%" + (isStale ? "!" : "")
     }
 }

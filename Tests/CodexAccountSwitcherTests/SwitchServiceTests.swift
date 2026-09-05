@@ -63,6 +63,18 @@ struct SwitchCoordinatorTests {
         #expect(await fixture.desktop.reopenCount() == 1)
     }
 
+    @Test func recoveryReusesAuthorizedKeyWithoutRepeatedKeychainReads() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "key-cache-test-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SwitchRecoveryStore(baseURL: root, keyProvider: SingleReadKeyProvider())
+        for _ in 0..<2 {
+            let fixture = Data("synthetic-credential".utf8)
+            let journal = try await store.prepare(originalCredential: fixture, originalAccountID: UUID(), targetAccountID: UUID(), desktopWasRunning: false)
+            #expect(try await store.loadOriginalCredential(for: journal) == fixture)
+            try await store.clear(journal)
+        }
+    }
+
     @Test func encryptedRecoveryFileDoesNotContainCredentialPlaintext() async throws {
         let root = FileManager.default.temporaryDirectory.appending(
             path: "switch-recovery-tests-\(UUID().uuidString)",
@@ -342,5 +354,17 @@ private struct SwitchFixture {
             recovery: recovery,
             operationGate: AccountOperationGate()
         )
+    }
+}
+
+private final class SingleReadKeyProvider: RollbackKeyProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var wasRead = false
+    func loadOrCreateKey() throws -> SymmetricKey {
+        try lock.withLock {
+            guard !wasRead else { throw SwitchRecoveryError.invalidKeychainItem }
+            wasRead = true
+            return SymmetricKey(size: .bits256)
+        }
     }
 }

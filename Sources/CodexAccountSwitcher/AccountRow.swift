@@ -23,6 +23,23 @@ struct AccountRow: View {
         VStack(alignment: .leading, spacing: 11) {
             titleRow
             usageContent
+            if showsTokenActivity {
+                HStack {
+                    Text(L10n.string("today_token", language: language))
+                    Spacer()
+                    Text(accountTokenText).monospacedDigit()
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .help(L10n.string("account_token_source", language: language))
+                if let tokenRefreshError {
+                    Text(L10n.string("token_unavailable_short", language: language))
+                        .help(tokenRefreshError)
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+            }
 
             if let warmupStatus {
                 warmupContent(warmupStatus)
@@ -44,6 +61,12 @@ struct AccountRow: View {
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? .isSelected : [])
+    }
+
+    private var accountTokenText: String {
+        guard let date = tokenReportingDate,
+              let tokens = tokenActivity?.tokens(on: date) else { return "—" }
+        return formatTokens(tokens) + (tokenRefreshError == nil ? "" : " !")
     }
 
     private var titleRow: some View {

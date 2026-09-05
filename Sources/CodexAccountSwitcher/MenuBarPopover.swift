@@ -29,13 +29,6 @@ struct MenuBarPopover: View {
                 SettingsView(model: model) {
                     page = .accounts
                 }
-            case let .confirmSwitch(account):
-                SwitchConfirmationPage(
-                    model: model,
-                    account: account,
-                    onCancel: { page = .accounts },
-                    onConfirm: { switchAccount(account) }
-                )
             case let .switching(account):
                 SwitchingPage(model: model, account: account)
             }
@@ -100,16 +93,14 @@ struct MenuBarPopover: View {
 
             if model.settings.showsTokenActivity {
                 TokenTotalRow(
-                    title: model.text("token_total_local_today"),
+                    title: model.text("token_unassigned_local_today"),
                     usage: model.localTokenSnapshot?.usage,
                     models: model.localTokenSnapshot?.models ?? [],
                     language: model.settings.language,
                     statusText: localTokenStatusText,
                     detailText: model.text("token_total_local_hint"),
-                    retryTitle: model.text("refresh"),
                     isRefreshing: model.localTokenSnapshot == nil,
-                    initiallyExpanded: initiallyExpandsLocalModels,
-                    onRetry: model.refreshLocalTokenUsage
+                    initiallyExpanded: initiallyExpandsLocalModels
                 )
             }
 
@@ -158,7 +149,7 @@ struct MenuBarPopover: View {
                     if account.id == model.activeAccountID {
                         NSApp.keyWindow?.close()
                     } else {
-                        page = .confirmSwitch(account)
+                        switchAccount(account)
                     }
                 } label: {
                     AccountRow(
@@ -200,9 +191,7 @@ struct TokenTotalRow: View {
     let language: AppLanguage
     let statusText: String
     let detailText: String
-    let retryTitle: String
     let isRefreshing: Bool
-    let onRetry: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var modelsExpanded: Bool
 
@@ -213,10 +202,8 @@ struct TokenTotalRow: View {
         language: AppLanguage,
         statusText: String,
         detailText: String,
-        retryTitle: String,
         isRefreshing: Bool,
-        initiallyExpanded: Bool = false,
-        onRetry: @escaping () -> Void
+        initiallyExpanded: Bool = false
     ) {
         self.title = title
         self.usage = usage
@@ -224,9 +211,7 @@ struct TokenTotalRow: View {
         self.language = language
         self.statusText = statusText
         self.detailText = detailText
-        self.retryTitle = retryTitle
         self.isRefreshing = isRefreshing
-        self.onRetry = onRetry
         _modelsExpanded = State(initialValue: initiallyExpanded)
     }
 
@@ -244,11 +229,9 @@ struct TokenTotalRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Button(retryTitle, action: onRetry)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .disabled(isRefreshing)
+                if isRefreshing {
+                    ProgressView().controlSize(.mini)
+                }
             }
 
             HStack(spacing: 12) {
@@ -257,7 +240,10 @@ struct TokenTotalRow: View {
                 component(L10n.string("local_token_output", language: language), usage?.output)
             }
 
-
+            Text(statusText)
+                .font(.system(size: 9.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 10)
@@ -296,7 +282,6 @@ private enum PopoverPage {
     case accounts
     case manageAccounts
     case settings
-    case confirmSwitch(AccountProfile)
     case switching(AccountProfile)
 }
 
@@ -335,77 +320,6 @@ private struct IdentityStatusBanner: View {
         colorScheme == .dark
             ? Color(red: 0.30, green: 0.105, blue: 0.115)
             : Color(red: 1.0, green: 0.90, blue: 0.90)
-    }
-}
-
-private struct SwitchConfirmationPage: View {
-    @ObservedObject var model: AppModel
-    let account: AccountProfile
-    let onCancel: () -> Void
-    let onConfirm: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            PopoverHeader(
-                title: model.text("confirm_switch"),
-                backTitle: model.text("back"),
-                onBack: onCancel
-            )
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 15) {
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .frame(width: 42, height: 42)
-                    .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
-
-                Text(model.format("switch_title", account.preferredLabel))
-                    .font(.system(size: 18, weight: .bold))
-
-                Text(model.text("switch_body"))
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                VStack(alignment: .leading, spacing: 9) {
-                    ImpactRow(text: model.text("switch_impact_desktop"))
-                    ImpactRow(text: model.text("switch_impact_existing_cli"))
-                    ImpactRow(text: model.text("switch_impact_new_cli"))
-                }
-
-                HStack(spacing: 8) {
-                    Button(model.text("cancel"), action: onCancel)
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
-
-                    Button(model.text("switch"), action: onConfirm)
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orange)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .padding(16)
-        }
-    }
-}
-
-private struct ImpactRow: View {
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Color(nsColor: .systemGreen))
-                .padding(.top, 2)
-            Text(text)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
     }
 }
 

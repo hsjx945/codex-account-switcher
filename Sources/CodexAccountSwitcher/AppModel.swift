@@ -75,7 +75,7 @@ final class AppModel: ObservableObject {
     private var usageRefreshTask: Task<Void, Never>?
     private var nextUsageRefreshTask: Task<Void, Never>?
     private var addAccountTask: Task<Void, Never>?
-    private var backgroundUsageRefreshInterval: Duration = .seconds(300)
+    private var backgroundUsageRefreshInterval: Duration = .seconds(30)
     private var isBackgroundUsageRefreshEnabled = false
     private var lastNotifiedFiveHourResetAt: [UUID: Date] = [:]
 
@@ -301,7 +301,7 @@ final class AppModel: ObservableObject {
         await usageRefreshTask?.value
     }
 
-    func startBackgroundUsageRefresh(every interval: Duration = .seconds(300)) async {
+    func startBackgroundUsageRefresh(every interval: Duration = .seconds(30)) async {
         backgroundUsageRefreshInterval = interval
         isBackgroundUsageRefreshEnabled = true
         await start()

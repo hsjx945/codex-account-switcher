@@ -250,10 +250,10 @@ private func createExecutable(at url: URL, body: String) throws {
 struct CoreChecks {
     @MainActor static func main() async throws {
         let quotaFixture = WeeklyUsage(remainingPercent: 50, resetsAt: nil, fiveHourRemainingPercent: 100)
-        try require(MenuBarQuotaPresentation(state: .loaded(quotaFixture), identityConflict: false).title == "50%", "menu shows weekly quota only")
+        try require(MenuBarQuotaPresentation(state: .loaded(quotaFixture), identityConflict: false).title == "100% / 50%", "menu shows five-hour then weekly quota")
         try require(MenuBarQuotaPresentation(state: .loaded(quotaFixture), identityConflict: true).title == "—", "conflicting identity hides quota")
         try require(MenuBarQuotaPresentation(state: .unavailable("offline"), identityConflict: false).title == "—", "missing quota is not zero")
-        try require(MenuBarQuotaPresentation(state: .stale(quotaFixture, "offline"), identityConflict: false).title == "50%!", "stale menu quota is marked")
+        try require(MenuBarQuotaPresentation(state: .stale(quotaFixture, "offline"), identityConflict: false).title == "100% / 50%!", "stale menu quota is marked")
         for (used, expected) in [(Double.greatestFiniteMagnitude, 0), (-Double.greatestFiniteMagnitude, 100)] {
             let result = try WeeklyUsageNormalizer.normalize([
                 RateLimitWindow(usedPercent: used, windowDurationMins: 10080, resetsAt: nil),

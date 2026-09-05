@@ -40,7 +40,7 @@ struct SwitcherApp: App {
     private var menuBarAccessibilityLabel: String {
         var parts = ["Codex Account Switcher"]
         if model.settings.showsMenuBarPercentage {
-            parts.append(model.text("weekly"))
+            parts.append(model.text("five_hour") + " / " + model.text("weekly"))
             parts.append(model.menuBarQuota.title)
             if model.menuBarQuota.isStale {
                 parts.append(model.text("usage_cached"))
