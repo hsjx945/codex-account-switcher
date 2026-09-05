@@ -4,7 +4,7 @@ import ServiceManagement
 import SwiftUI
 
 private enum UsageRefreshResult: Sendable {
-    case success(UUID, WeeklyUsage, TokenActivity?, String?)
+    case success(UUID, WeeklyUsage, TokenActivity?, String?, String?)
     case failure(UUID, String)
 }
 
@@ -48,10 +48,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var usageStates: [UUID: UsageViewState] = [:]
     @Published private(set) var tokenActivities: [UUID: TokenActivity] = [:]
     @Published private(set) var tokenActivityRefreshFinished = false
+    @Published private(set) var tokenRefreshErrors: [UUID: String] = [:]
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
     @Published private(set) var isMutating = false
     @Published private(set) var isAddingAccount = false
+    @Published private(set) var isSavingSettings = false
     @Published var visibleError: OperationError?
     @Published private(set) var activeIdentityState: ActiveIdentityVerificationState = .checking
     @Published private(set) var launchAtLoginState: LaunchAtLoginState = .disabled
@@ -123,6 +125,13 @@ final class AppModel: ObservableObject {
         String(format: text(key), argument)
     }
 
+    var menuBarQuota: MenuBarQuotaPresentation {
+        MenuBarQuotaPresentation(
+            state: activeAccountID.flatMap { usageStates[$0] },
+            identityConfirmed: activeIdentityConfirmed
+        )
+    }
+
     var activeRemainingPercent: Int? {
         guard let activeAccountID else { return nil }
         return usageStates[activeAccountID]?.displayedUsage?.remainingPercent
@@ -148,7 +157,7 @@ final class AppModel: ObservableObject {
         guard let commonTokenDateKey else { return nil }
         let values = accounts.compactMap { tokenActivities[$0.id]?.tokens(on: commonTokenDateKey) }
         guard values.count == accounts.count else { return nil }
-        return values.reduce(0, +)
+        return TokenActivity.checkedTokenTotal(values)
     }
 
     var activeIdentityConfirmed: Bool {
@@ -157,6 +166,7 @@ final class AppModel: ObservableObject {
 
     var displayedAccounts: [AccountProfile] {
         accounts.sorted { lhs, rhs in
+            if lhs.id == rhs.id { return false }
             if lhs.id == activeAccountID { return true }
             if rhs.id == activeAccountID { return false }
             return (lhs.lastUsedAt ?? lhs.createdAt) > (rhs.lastUsedAt ?? rhs.createdAt)
@@ -249,6 +259,7 @@ final class AppModel: ObservableObject {
             scheduleNextWeeklyUsageRefresh()
         }
         guard !accounts.isEmpty, usageRefreshTask == nil else { return }
+        tokenActivityRefreshFinished = false
         usageRefreshTask = Task { [weak self] in
             guard let self else { return }
             await self.performWeeklyUsageRefresh()
@@ -306,11 +317,19 @@ final class AppModel: ObservableObject {
                     do {
                         let values = try await operationGate.run {
                             let usage = try await codex.readWeeklyUsage(profileHome: home)
-                            let tokens = try? await codex.readTokenActivity(profileHome: home)
+                            let tokens: TokenActivity?
+                            let tokenError: String?
+                            do {
+                                tokens = try await codex.readTokenActivity(profileHome: home)
+                                tokenError = nil
+                            } catch {
+                                tokens = nil
+                                tokenError = error.localizedDescription
+                            }
                             let identity = try? await codex.readIdentity(profileHome: home)
-                            return (usage, tokens, identity?.planType)
+                            return (usage, tokens, identity?.planType, tokenError)
                         }
-                        return .success(id, values.0, values.1, values.2)
+                        return .success(id, values.0, values.1, values.2, values.3)
                     } catch {
                         return .failure(id, error.localizedDescription)
                     }
@@ -318,14 +337,15 @@ final class AppModel: ObservableObject {
             }
             for await result in group {
                 switch result {
-                case let .success(id, usage, activity, planType):
+                case let .success(id, usage, activity, planType, tokenError):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
+                    tokenRefreshErrors[id] = tokenError
                     let previousUsage = usageStates[id]?.displayedUsage
                     usageStates[id] = .loaded(usage)
+                    if let activity { tokenActivities[id] = activity }
                     do {
                         try await store.cacheWeeklyUsage(usage, profileID: id)
                         if let activity {
-                            tokenActivities[id] = activity
                             try await store.cacheTokenActivity(activity, profileID: id)
                         }
                         if let planType {
@@ -344,6 +364,7 @@ final class AppModel: ObservableObject {
                     }
                 case let .failure(id, message):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
+                    tokenRefreshErrors[id] = message
                     if let cached = usageStates[id]?.displayedUsage {
                         usageStates[id] = .stale(cached, message)
                     } else {
@@ -460,6 +481,22 @@ final class AppModel: ObservableObject {
                 )
             } else {
                 visibleError = error
+                // An error can occur after the switch commits (for example,
+                // journal cleanup). Reconcile the saved identity before drawing
+                // the current-account badge or menu-bar quota again.
+                do {
+                    apply(try await store.loadRegistry())
+                    await confirmActiveIdentity()
+                } catch let refreshError {
+                    activeIdentityState = .unavailable
+                    visibleError = OperationError(
+                        stage: error.stage,
+                        titleKey: error.titleKey,
+                        messageKey: nil,
+                        message: "\(error.localizedDescription) Refreshing account state also failed: \(refreshError.localizedDescription)",
+                        underlyingDescription: error.underlyingDescription
+                    )
+                }
             }
         } catch {
             showError(error)
@@ -538,73 +575,58 @@ final class AppModel: ObservableObject {
             apply(try await store.loadRegistry())
             usageStates[id] = nil
             tokenActivities[id] = nil
+            tokenRefreshErrors[id] = nil
         } catch {
             showError(error)
         }
     }
 
-    func updateNickname(id: UUID, nickname: String?) async {
-        guard !isMutating else { return }
+    func updateNickname(id: UUID, nickname: String?) async -> Bool {
+        guard !isMutating else { return false }
         isMutating = true
         defer { isMutating = false }
         do {
             try await store.updateNickname(id: id, nickname: nickname)
             apply(try await store.loadRegistry())
+            return true
         } catch {
             showError(error)
+            return false
         }
     }
 
     func setLanguage(_ language: AppLanguage) async {
-        settings.language = language
-        do {
-            try await store.saveSettings(settings)
-        } catch {
-            showError(error)
-        }
+        await updateSettings { $0.language = language }
     }
 
     func setShowsMenuBarPercentage(_ enabled: Bool) async {
-        settings.showsMenuBarPercentage = enabled
-        do {
-            try await store.saveSettings(settings)
-        } catch {
-            showError(error)
-        }
+        await updateSettings { $0.showsMenuBarPercentage = enabled }
     }
 
     func setShowsFiveHourUsage(_ enabled: Bool) async {
-        settings.showsFiveHourUsage = enabled
-        do {
-            try await store.saveSettings(settings)
-        } catch {
-            showError(error)
-        }
+        await updateSettings { $0.showsFiveHourUsage = enabled }
     }
 
     func setAccountNameStyle(_ style: AccountNameStyle) async {
-        settings.accountNameStyle = style
-        await persistSettings()
+        await updateSettings { $0.accountNameStyle = style }
     }
 
     func setShowsTokenActivity(_ enabled: Bool) async {
-        settings.showsTokenActivity = enabled
-        await persistSettings()
-        if enabled { refreshWeeklyUsage() }
+        if await updateSettings({ $0.showsTokenActivity = enabled }), enabled { refreshWeeklyUsage() }
     }
 
     func setAutomaticWarmupEnabled(_ enabled: Bool) async {
-        settings.automaticWarmupEnabled = enabled
-        await persistSettings()
-        if enabled { refreshWeeklyUsage() }
+        if await updateSettings({ $0.automaticWarmupEnabled = enabled }), enabled { refreshWeeklyUsage() }
     }
 
     func setFiveHourResetNotificationsEnabled(_ enabled: Bool) async {
         if !enabled {
-            settings.fiveHourResetNotificationsEnabled = false
-            await persistSettings()
+            await updateSettings { $0.fiveHourResetNotificationsEnabled = false }
             return
         }
+        guard !isSavingSettings else { return }
+        isSavingSettings = true
+        defer { isSavingSettings = false }
         do {
             guard try await notificationService.requestAuthorization() else {
                 showError(LocalizedAppError(message: text("notification_permission_denied")))
@@ -616,8 +638,10 @@ final class AppModel: ObservableObject {
                 lastNotifiedFiveHourResetAt[id] = resetAt
                 try await store.markFiveHourResetNotified(profileID: id, resetAt: resetAt)
             }
-            settings.fiveHourResetNotificationsEnabled = true
-            await persistSettings()
+            var updated = settings
+            updated.fiveHourResetNotificationsEnabled = true
+            try await store.saveSettings(updated)
+            settings = updated
         } catch {
             showError(error)
         }
@@ -625,9 +649,10 @@ final class AppModel: ObservableObject {
 
     func setWarmupTime(_ date: Date) async {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
-        settings.warmupHour = components.hour ?? 8
-        settings.warmupMinute = components.minute ?? 30
-        await persistSettings()
+        await updateSettings {
+            $0.warmupHour = components.hour ?? 8
+            $0.warmupMinute = components.minute ?? 30
+        }
     }
 
     var warmupTime: Date {
@@ -639,11 +664,20 @@ final class AppModel: ObservableObject {
         ) ?? Date()
     }
 
-    private func persistSettings() async {
+    @discardableResult
+    private func updateSettings(_ update: (inout AppSettings) -> Void) async -> Bool {
+        guard !isSavingSettings else { return false }
+        isSavingSettings = true
+        defer { isSavingSettings = false }
+        var updated = settings
+        update(&updated)
         do {
-            try await store.saveSettings(settings)
+            try await store.saveSettings(updated)
+            settings = updated
+            return true
         } catch {
             showError(error)
+            return false
         }
     }
 
@@ -678,6 +712,7 @@ final class AppModel: ObservableObject {
         accounts = registry.accounts
         activeAccountID = registry.activeAccountID
         usageStates = usageStates.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
+        tokenRefreshErrors = tokenRefreshErrors.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         tokenActivities = tokenActivities.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         warmupStatuses = warmupStatuses.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         lastNotifiedFiveHourResetAt = lastNotifiedFiveHourResetAt.filter {
@@ -696,7 +731,7 @@ final class AppModel: ObservableObject {
                 lastNotifiedFiveHourResetAt[entry.profileID] = resetAt
             }
         }
-        tokenActivityRefreshFinished = true
+        tokenActivityRefreshFinished = false
     }
 
     func handleNotificationSwitchRequest(profileID: UUID) async {

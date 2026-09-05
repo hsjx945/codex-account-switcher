@@ -1,6 +1,21 @@
 import Foundation
 import Darwin
 
+struct AccountRemovalError: LocalizedError, Equatable, Sendable {
+    let deletionErrorDescription: String
+    let registryRestorationErrorDescription: String
+
+    init(deletionError: any Error, registryRestorationError: any Error) {
+        deletionErrorDescription = deletionError.localizedDescription
+        registryRestorationErrorDescription = registryRestorationError.localizedDescription
+    }
+
+    var errorDescription: String? {
+        "The account credential could not be removed (\(deletionErrorDescription)). "
+            + "Restoring the account registry also failed (\(registryRestorationErrorDescription))."
+    }
+}
+
 protocol AccountStoring: Sendable {
     func loadRegistry() async throws -> AccountRegistry
     func profile(id: UUID) async throws -> AccountProfile
@@ -32,7 +47,7 @@ actor AccountStore: AccountStoring {
         baseURL: URL? = nil,
         legacyBaseURL: URL? = nil,
         activeHomeURL: URL? = nil,
-        fileManager: FileManager = .default
+        fileManager: sending FileManager = .default
     ) {
         self.fileManager = fileManager
         let applicationSupportURL = fileManager.urls(
@@ -292,12 +307,19 @@ actor AccountStore: AccountStoring {
 
         do {
             try fileManager.removeItem(at: profileHome(id: id))
-        } catch {
+        } catch let deletionError {
             // Keep the credential recoverable whenever physical deletion fails.
-            // Even if restoring the registry also fails, the credential remains
-            // on disk and can be recovered manually instead of being destroyed.
-            try? saveRegistry(original)
-            throw error
+            // If restoring the registry fails too, surface both failures while
+            // leaving the credential on disk as recoverable evidence.
+            do {
+                try saveRegistry(original)
+            } catch let registryRestorationError {
+                throw AccountRemovalError(
+                    deletionError: deletionError,
+                    registryRestorationError: registryRestorationError
+                )
+            }
+            throw deletionError
         }
 
         // These records are derived metadata. Once registry removal and

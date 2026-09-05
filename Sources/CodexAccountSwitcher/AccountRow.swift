@@ -12,6 +12,7 @@ struct AccountRow: View {
     let tokenActivityRefreshFinished: Bool
     let showsTokenActivity: Bool
     let warmupStatus: WarmupRecord?
+    var tokenRefreshError: String? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
@@ -137,13 +138,16 @@ struct AccountRow: View {
 
             Text("\(remainingPercent)%")
                 .font(.system(size: 14, weight: .bold).monospacedDigit())
-                .frame(width: 42, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 44, alignment: .trailing)
 
             Text(resetsAt.map(resetText(for:)) ?? L10n.string("reset_unknown", language: language))
                 .font(.system(size: 10.5).monospacedDigit())
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .frame(width: 92, alignment: .trailing)
+                .help("\(L10n.string("resets", language: language)) \(resetsAt.map(resetText(for:)) ?? "—") (UTC+8)")
         }
     }
 
@@ -159,6 +163,12 @@ struct AccountRow: View {
             Spacer()
 
             if let reportedTokens {
+                if tokenRefreshError != nil || !tokenActivityRefreshFinished {
+                    Text(L10n.string("cached", language: language))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .help(L10n.string("token_cached_hint", language: language))
+                }
                 Text(formatTokens(reportedTokens))
                     .font(.system(size: 14, weight: .bold).monospacedDigit())
             } else {
@@ -214,7 +224,7 @@ struct AccountRow: View {
         case .unconfirmed: "warmup_unconfirmed"
         case .failed: "warmup_failed"
         }
-        return Text("\(L10n.string(key, language: language)) · \(BeijingDateTimeFormatter.string(from: record.attemptedAt))")
+        return Text("\(L10n.string(key, language: language)) · \(BeijingDateTimeFormatter.string(from: record.attemptedAt, language: language))")
             .font(.system(size: 10.5))
             .foregroundStyle(.primary)
             .lineLimit(1)
@@ -292,7 +302,7 @@ struct AccountRow: View {
     }
 
     private func resetText(for resetsAt: Date) -> String {
-        BeijingDateTimeFormatter.string(from: resetsAt)
+        BeijingDateTimeFormatter.string(from: resetsAt, language: language)
     }
 
     private func formatTokens(_ tokens: Int) -> String {

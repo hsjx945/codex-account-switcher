@@ -23,6 +23,7 @@ struct SettingsView: View {
                 .padding(14)
             }
             .frame(maxHeight: 560)
+            .disabled(model.isSavingSettings)
         }
         .onAppear { model.refreshLaunchAtLoginStatus() }
     }

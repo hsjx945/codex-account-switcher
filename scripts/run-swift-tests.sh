@@ -4,7 +4,17 @@ set -eu
 test_list=$(mktemp -t codex-switcher-tests.XXXXXX)
 trap 'rm -f "$test_list"' EXIT
 
-swift test list --enable-swift-testing >"$test_list"
+# SwiftPM's generated runner is a separate target. Package.swift target flags
+# alone can leave canImport(Testing) false and silently execute zero tests on CLT.
+swift_path=$(xcrun --find swift)
+toolchain_root=$(dirname "$(dirname "$(dirname "$swift_path")")")
+frameworks="$toolchain_root/Library/Developer/Frameworks"
+set --
+if [ -d "$frameworks/Testing.framework" ]; then
+  set -- -Xswiftc -F -Xswiftc "$frameworks"
+fi
+
+swift test list --enable-swift-testing "$@" >"$test_list"
 
 if ! grep -Fq 'CodexAccountSwitcherTests.AccountStoreTests' "$test_list"; then
   echo "Swift Testing discovered no known CodexAccountSwitcher tests." >&2
@@ -12,4 +22,6 @@ if ! grep -Fq 'CodexAccountSwitcherTests.AccountStoreTests' "$test_list"; then
   exit 1
 fi
 
-swift test --enable-swift-testing
+# These integration fixtures launch short-lived processes with tight deadlines.
+# Explicitly disable Swift Testing parallelism so load does not masquerade as RPC failure.
+swift test --enable-swift-testing --no-parallel "$@"

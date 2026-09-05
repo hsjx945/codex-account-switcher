@@ -201,11 +201,26 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
 
     func clear(_ journal: SwitchJournal) throws {
         let backupURL = try backupURL(for: journal.backupFileName)
-        if fileManager.fileExists(atPath: journalURL.path) {
-            try fileManager.removeItem(at: journalURL)
-        }
-        if fileManager.fileExists(atPath: backupURL.path) {
-            try fileManager.removeItem(at: backupURL)
+        if journal.phase == .committed {
+            // A committed transaction never reads the backup during startup
+            // recovery. Delete it first so a failed cleanup keeps the journal
+            // and can be retried without misreporting a reopen failure.
+            if fileManager.fileExists(atPath: backupURL.path) {
+                try fileManager.removeItem(at: backupURL)
+            }
+            if fileManager.fileExists(atPath: journalURL.path) {
+                try fileManager.removeItem(at: journalURL)
+            }
+        } else {
+            // Earlier phases may still be interpreted as requiring rollback on
+            // startup. Delete the journal first so a failed backup deletion
+            // cannot leave a journal that references a missing backup.
+            if fileManager.fileExists(atPath: journalURL.path) {
+                try fileManager.removeItem(at: journalURL)
+            }
+            if fileManager.fileExists(atPath: backupURL.path) {
+                try fileManager.removeItem(at: backupURL)
+            }
         }
     }
 
@@ -258,25 +273,49 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
 }
 
 actor AccountOperationGate {
+    private struct Waiter: Sendable {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
     private var isLocked = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [Waiter] = []
 
     func run<T: Sendable>(
         _ operation: @Sendable () async throws -> T
-    ) async rethrows -> T {
-        await acquire()
+    ) async throws -> T {
+        try Task.checkCancellation()
+        try await acquire()
         defer { release() }
+        try Task.checkCancellation()
         return try await operation()
     }
 
-    private func acquire() async {
+    private func acquire() async throws {
+        try Task.checkCancellation()
         if !isLocked {
             isLocked = true
             return
         }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
+
+        let waiterID = UUID()
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    waiters.append(Waiter(id: waiterID, continuation: continuation))
+                }
+            }
+        }, onCancel: {
+            Task { await self.cancelWaiter(id: waiterID) }
+        })
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(throwing: CancellationError())
     }
 
     private func release() {
@@ -284,6 +323,6 @@ actor AccountOperationGate {
             isLocked = false
             return
         }
-        waiters.removeFirst().resume()
+        waiters.removeFirst().continuation.resume(returning: ())
     }
 }

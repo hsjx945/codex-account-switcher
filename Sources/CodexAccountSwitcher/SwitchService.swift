@@ -151,9 +151,23 @@ actor SwitchCoordinator: SwitchServicing {
 
         do {
             if desktopWasRunning { try await desktop.reopenDesktop() }
-            try await recovery.clear(journal)
         } catch {
             throw OperationError.stage(.reopenDesktop, error)
+        }
+        do {
+            try await recovery.clear(journal)
+        } catch {
+            // The target and registry are already committed. Keep the
+            // recovery journal for a later cleanup attempt and report the
+            // cleanup failure separately from a Desktop reopen failure.
+            throw OperationError(
+                stage: nil,
+                titleKey: "operation_failed",
+                messageKey: nil,
+                message: "The account switch committed successfully, but switch recovery cleanup failed: "
+                    + "\(error.localizedDescription) It will be retried.",
+                underlyingDescription: String(describing: error)
+            )
         }
     }
 

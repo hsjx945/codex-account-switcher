@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 enum JSONValue: Decodable, Sendable {
@@ -46,7 +47,16 @@ enum JSONValue: Decodable, Sendable {
         return value
     }
 
-    var intValue: Int? { doubleValue.map(Int.init) }
+    var intValue: Int? {
+        guard let value = doubleValue,
+              value.isFinite,
+              value >= Double(Int.min),
+              value <= Double(Int.max)
+        else {
+            return nil
+        }
+        return Int(exactly: value)
+    }
 
     var boolValue: Bool? {
         guard case let .bool(value) = self else { return nil }
@@ -538,23 +548,20 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReadi
         } catch {
             throw CodexClientError.processLaunchFailed(error.localizedDescription)
         }
-        let status = await withTaskGroup(of: Int32?.self) { group in
-            group.addTask {
-                process.waitUntilExit()
-                return process.terminationStatus
+        let status: Int32
+        do {
+            guard let exitedStatus = try await waitForProcessExit(process, timeout: requestTimeout) else {
+                await terminateWarmupProcess(process)
+                throw CodexClientError.timeout
             }
-            group.addTask { [requestTimeout] in
-                try? await Task.sleep(for: requestTimeout)
-                return Task.isCancelled ? Int32?.some(-1) : nil
-            }
-            let first = await group.next() ?? nil
-            if first == nil, process.isRunning {
-                process.terminate()
-            }
-            group.cancelAll()
-            return first
+            status = exitedStatus
+        } catch is CancellationError {
+            await terminateWarmupProcess(process)
+            throw CancellationError()
+        } catch {
+            await terminateWarmupProcess(process)
+            throw error
         }
-        guard let status else { throw CodexClientError.timeout }
         guard status == 0 else {
             throw CodexClientError.warmupFailed("codex exec exited with status \(status)")
         }
@@ -634,16 +641,24 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReadi
         guard let account = value["account"]?.objectValue else {
             throw CodexClientError.identityUnavailable
         }
-        let accountID = account["accountId"]?.stringValue
-            ?? account["accountID"]?.stringValue
-            ?? account["chatgptAccountId"]?.stringValue
-            ?? account["id"]?.stringValue
-        let email = account["email"]?.stringValue
-        let planType = account["planType"]?.stringValue
+        let accountID = [
+            account["accountId"]?.stringValue,
+            account["accountID"]?.stringValue,
+            account["chatgptAccountId"]?.stringValue,
+            account["id"]?.stringValue,
+        ].compactMap(normalizedIdentityValue).first
+        let email = normalizedIdentityValue(account["email"]?.stringValue)
+        let planType = normalizedIdentityValue(account["planType"]?.stringValue)
         guard accountID != nil || email != nil else {
             throw CodexClientError.identityUnavailable
         }
         return AccountIdentity(accountID: accountID, email: email, planType: planType)
+    }
+
+    private func normalizedIdentityValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func preferredWarmupModel(profileHome: URL) async throws -> String {
@@ -692,5 +707,34 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReadi
             windowDurationMins: duration,
             resetsAt: value["resetsAt"]?.doubleValue
         )
+    }
+
+    private func waitForProcessExit(_ process: Process, timeout: Duration) async throws -> Int32? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while process.isRunning {
+            try Task.checkCancellation()
+            guard clock.now < deadline else { return nil }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return process.terminationStatus
+    }
+
+    private func terminateWarmupProcess(_ process: Process) async {
+        await Task.detached(priority: .utility) {
+            guard process.isRunning else { return }
+            process.terminate()
+            Self.waitForProcessExitSynchronously(process, timeout: 0.25)
+            guard process.isRunning else { return }
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            Self.waitForProcessExitSynchronously(process, timeout: 0.25)
+        }.value
+    }
+
+    private static func waitForProcessExitSynchronously(_ process: Process, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
     }
 }

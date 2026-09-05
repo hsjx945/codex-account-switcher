@@ -81,23 +81,23 @@ struct MenuBarPopover: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 150)
             } else {
-                if model.displayedAccounts.count <= 4 {
+                ViewThatFits(in: .vertical) {
                     accountRows
                         .padding(9)
                         .fixedSize(horizontal: false, vertical: true)
-                } else {
                     ScrollView {
                         accountRows.padding(9)
                     }
-                    .frame(height: 520)
                 }
+                .frame(maxHeight: 520)
             }
 
             if model.settings.showsTokenActivity, !model.accounts.isEmpty {
                 TokenTotalRow(
                     title: tokenTotalTitle,
                     tokens: model.reportedTokenTotal,
-                    unavailableTitle: model.text("token_unavailable_short")
+                    unavailableTitle: model.text("token_unavailable_short"),
+                    cachedTitle: (!model.tokenActivityRefreshFinished || !model.tokenRefreshErrors.isEmpty) ? model.text("cached") : nil
                 )
             }
 
@@ -148,7 +148,8 @@ struct MenuBarPopover: View {
                         tokenReportingDate: model.tokenReportingDate,
                         tokenActivityRefreshFinished: model.tokenActivityRefreshFinished,
                         showsTokenActivity: model.settings.showsTokenActivity,
-                        warmupStatus: model.warmupStatuses[account.id]
+                        warmupStatus: model.warmupStatuses[account.id],
+                        tokenRefreshError: model.tokenRefreshErrors[account.id]
                     )
                 }
                 .buttonStyle(.plain)
@@ -189,6 +190,7 @@ private struct TokenTotalRow: View {
     let title: String
     let tokens: Int?
     let unavailableTitle: String
+    let cachedTitle: String?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -199,6 +201,11 @@ private struct TokenTotalRow: View {
 
             Spacer()
 
+            if tokens != nil, let cachedTitle {
+                Text(cachedTitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
             Text(tokens.map(formatTokens) ?? unavailableTitle)
                 .font(.system(size: 15, weight: .bold).monospacedDigit())
                 .foregroundStyle(.primary)

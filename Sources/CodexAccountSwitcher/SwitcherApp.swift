@@ -13,22 +13,16 @@ struct SwitcherApp: App {
             HStack(spacing: 4) {
                 MenuBarLogo()
 
-                if let accountLabel = model.activeAccountLabel {
-                    Text(accountLabel)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 150)
-                }
-
-                if model.settings.showsMenuBarPercentage,
-                   let remainingPercent = model.activeRemainingPercent {
-                    Text("· \(remainingPercent)%")
+                if model.settings.showsMenuBarPercentage {
+                    Text(model.menuBarQuota.title)
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
                 }
             }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(menuBarAccessibilityLabel)
+                .help(menuBarAccessibilityLabel)
                 .task {
                     await model.start()
                     appDelegate.bindSwitchHandler { [weak model] profileID in
@@ -45,12 +39,12 @@ struct SwitcherApp: App {
 
     private var menuBarAccessibilityLabel: String {
         var parts = ["Codex Account Switcher"]
-        if let accountLabel = model.activeAccountLabel {
-            parts.append(accountLabel)
-        }
-        if model.settings.showsMenuBarPercentage,
-           let remainingPercent = model.activeRemainingPercent {
-            parts.append("\(remainingPercent)%")
+        if model.settings.showsMenuBarPercentage {
+            parts.append(model.text("weekly"))
+            parts.append(model.menuBarQuota.title)
+            if model.menuBarQuota.isStale {
+                parts.append(model.text("usage_cached"))
+            }
         }
         return parts.joined(separator: ", ")
     }

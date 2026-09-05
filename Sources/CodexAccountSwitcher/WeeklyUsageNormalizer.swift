@@ -22,14 +22,16 @@ enum WeeklyUsageNormalizer {
         let fiveHour = windows.first { $0.windowDurationMins == fiveHourMinutes }
 
         return WeeklyUsage(
-            remainingPercent: remainingPercent(for: weekly),
+            remainingPercent: try remainingPercent(for: weekly),
             resetsAt: weekly.resetsAt.map(Date.init(timeIntervalSince1970:)),
-            fiveHourRemainingPercent: fiveHour.map { remainingPercent(for: $0) },
+            fiveHourRemainingPercent: try fiveHour.map { try remainingPercent(for: $0) },
             fiveHourResetsAt: fiveHour?.resetsAt.map(Date.init(timeIntervalSince1970:))
         )
     }
 
-    private static func remainingPercent(for window: RateLimitWindow) -> Int {
-        min(100, max(0, Int((100 - window.usedPercent).rounded())))
+    private static func remainingPercent(for window: RateLimitWindow) throws -> Int {
+        guard window.usedPercent.isFinite else { throw CodexClientError.malformedResponse }
+        // Clamp while still floating point; converting an unbounded server value traps.
+        return Int((100 - min(100, max(0, window.usedPercent))).rounded())
     }
 }

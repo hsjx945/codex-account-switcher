@@ -297,8 +297,9 @@ private struct NicknameEditor: View {
 
                 Button(model.text("save")) {
                     Task {
-                        await model.updateNickname(id: account.id, nickname: nickname)
-                        onDone()
+                        if await model.updateNickname(id: account.id, nickname: nickname) {
+                            onDone()
+                        }
                     }
                 }
                 .buttonStyle(.borderedProminent)

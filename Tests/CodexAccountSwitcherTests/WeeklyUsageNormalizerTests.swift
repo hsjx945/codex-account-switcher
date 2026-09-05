@@ -3,6 +3,22 @@ import Testing
 @testable import CodexAccountSwitcher
 
 struct WeeklyUsageNormalizerTests {
+    @Test func handlesExtremeServerPercentagesWithoutIntegerOverflow() throws {
+        for (used, expected) in [(Double.greatestFiniteMagnitude, 0), (-Double.greatestFiniteMagnitude, 100)] {
+            let result = try WeeklyUsageNormalizer.normalize([
+                RateLimitWindow(usedPercent: used, windowDurationMins: 10080, resetsAt: nil),
+            ])
+            #expect(result.remainingPercent == expected)
+        }
+        for used in [Double.nan, Double.infinity, -Double.infinity] {
+            #expect(throws: CodexClientError.malformedResponse) {
+                try WeeklyUsageNormalizer.normalize([
+                    RateLimitWindow(usedPercent: used, windowDurationMins: 10080, resetsAt: nil),
+                ])
+            }
+        }
+    }
+
     @Test func selectsLongestWeeklyWindowAndCalculatesRemaining() throws {
         let reset = Date(timeIntervalSince1970: 1_750_000_000)
         let result = try WeeklyUsageNormalizer.normalize([

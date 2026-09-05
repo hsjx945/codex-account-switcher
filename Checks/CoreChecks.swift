@@ -249,6 +249,26 @@ private func createExecutable(at url: URL, body: String) throws {
 @main
 struct CoreChecks {
     @MainActor static func main() async throws {
+        let quotaFixture = WeeklyUsage(remainingPercent: 50, resetsAt: nil, fiveHourRemainingPercent: 100)
+        try require(MenuBarQuotaPresentation(state: .loaded(quotaFixture), identityConfirmed: true).title == "50%", "menu shows weekly quota only")
+        try require(MenuBarQuotaPresentation(state: .loaded(quotaFixture), identityConfirmed: false).title == "—", "unverified identity hides quota")
+        try require(MenuBarQuotaPresentation(state: .unavailable("offline"), identityConfirmed: true).title == "—", "missing quota is not zero")
+        try require(MenuBarQuotaPresentation(state: .stale(quotaFixture, "offline"), identityConfirmed: true).title == "50%!", "stale menu quota is marked")
+        for (used, expected) in [(Double.greatestFiniteMagnitude, 0), (-Double.greatestFiniteMagnitude, 100)] {
+            let result = try WeeklyUsageNormalizer.normalize([
+                RateLimitWindow(usedPercent: used, windowDurationMins: 10080, resetsAt: nil),
+            ])
+            try require(result.remainingPercent == expected, "extreme server percentage does not overflow")
+        }
+        do {
+            _ = try WeeklyUsageNormalizer.normalize([
+                RateLimitWindow(usedPercent: .nan, windowDurationMins: 10080, resetsAt: nil),
+            ])
+            throw CheckFailure.failed("NaN quota must be rejected")
+        } catch CodexClientError.malformedResponse {}
+        let dateFixture = try requireDate("2026-09-04T16:26:00Z")
+        try require(BeijingDateTimeFormatter.string(from: dateFixture, language: .english) == "Sep 5 00:26", "English reset date is localized")
+
         try require(
             LaunchAtLoginState(status: .notRegistered) == .disabled,
             "not-registered launch-at-login state"
@@ -804,16 +824,17 @@ struct CoreChecks {
 
         let operationGate = AccountOperationGate()
         let concurrencyProbe = CoreConcurrencyProbe()
-        await withTaskGroup(of: Void.self) { group in
+        try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<6 {
                 group.addTask {
-                    await operationGate.run {
+                    try await operationGate.run {
                         await concurrencyProbe.enter()
                         try? await Task.sleep(for: .milliseconds(20))
                         await concurrencyProbe.leave()
                     }
                 }
             }
+            try await group.waitForAll()
         }
         let maximumConcurrency = await concurrencyProbe.maximumConcurrency()
         try require(maximumConcurrency == 1, "account operation gate serializes across await")

@@ -91,9 +91,10 @@ struct SwitchCoordinatorTests {
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<6 {
                 group.addTask {
-                    await gate.run {
+                    try? await gate.run {
                         await probe.enter()
                         try? await Task.sleep(for: .milliseconds(20))
+                        try Task.checkCancellation()
                         await probe.leave()
                     }
                 }

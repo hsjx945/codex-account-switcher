@@ -186,6 +186,17 @@ struct TokenActivity: Codable, Equatable, Sendable {
     let modelBreakdown: [ModelTokenUsage]
     let localModelCoverageStartedAt: Date?
 
+    static func checkedTokenTotal(_ values: [Int]) -> Int? {
+        var total = 0
+        for value in values {
+            guard value >= 0 else { return nil }
+            let (sum, overflow) = total.addingReportingOverflow(value)
+            guard !overflow else { return nil }
+            total = sum
+        }
+        return total
+    }
+
     func tokens(
         inLastDays days: Int,
         now: Date = Date(),
@@ -215,7 +226,7 @@ struct TokenActivity: Codable, Equatable, Sendable {
             return bucket.tokens
         }
         guard !coveredTokens.isEmpty else { return nil }
-        return coveredTokens.reduce(0, +)
+        return Self.checkedTokenTotal(coveredTokens)
     }
 
     func tokensForToday(
@@ -229,7 +240,7 @@ struct TokenActivity: Codable, Equatable, Sendable {
         let key = String(format: "%04d-%02d-%02d", year, month, day)
         let matches = dailyBuckets.filter { $0.startDate == key }
         guard !matches.isEmpty else { return nil }
-        return matches.reduce(0) { $0 + $1.tokens }
+        return Self.checkedTokenTotal(matches.map(\.tokens))
     }
 
     var latestDateKey: String? {
@@ -250,7 +261,7 @@ struct TokenActivity: Codable, Equatable, Sendable {
     func tokens(on dateKey: String) -> Int? {
         let matches = dailyBuckets.filter { $0.startDate == dateKey }
         guard !matches.isEmpty else { return nil }
-        return matches.reduce(0) { $0 + $1.tokens }
+        return Self.checkedTokenTotal(matches.map(\.tokens))
     }
 }
 
@@ -446,14 +457,20 @@ struct AccountIdentity: Equatable, Sendable {
     }
 
     func matches(_ profile: AccountProfile) -> Bool {
-        if let expected = profile.accountID, let actual = accountID {
+        func normalized(_ value: String?) -> String? {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+        if let expected = normalized(profile.accountID), let actual = normalized(accountID) {
             return expected == actual
         }
-        if let expected = profile.email, let actual = email {
+        if let expected = normalized(profile.email), let actual = normalized(email) {
             return expected.caseInsensitiveCompare(actual) == .orderedSame
         }
         return false
     }
+
 }
 
 enum BeijingDateTimeFormatter {
@@ -463,12 +480,14 @@ enum BeijingDateTimeFormatter {
         return calendar
     }
 
-    static func string(from date: Date) -> String {
+    static func string(from date: Date, language: AppLanguage = .simplifiedChinese) -> String {
+        let usesChinese = language == .simplifiedChinese
+            || (language == .system && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.locale = Locale(identifier: usesChinese ? "zh_CN" : "en_US_POSIX")
         formatter.calendar = calendar
         formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
-        formatter.dateFormat = "M月d日 HH:mm"
+        formatter.dateFormat = usesChinese ? "M月d日 HH:mm" : "MMM d HH:mm"
         return formatter.string(from: date)
     }
 }
@@ -569,5 +588,21 @@ enum CodexClientError: LocalizedError, Equatable, Sendable {
         case let .warmupFailed(message):
             "Codex warmup failed: \(message)"
         }
+    }
+}
+
+/// A menu-bar summary must not expose account names or imply missing data is zero.
+struct MenuBarQuotaPresentation: Equatable {
+    let title: String
+    let isStale: Bool
+
+    init(state: UsageViewState?, identityConfirmed: Bool) {
+        guard identityConfirmed, let usage = state?.displayedUsage else {
+            title = "—"
+            isStale = false
+            return
+        }
+        isStale = state?.refreshError != nil
+        title = "\(min(max(usage.remainingPercent, 0), 100))%" + (isStale ? "!" : "")
     }
 }
