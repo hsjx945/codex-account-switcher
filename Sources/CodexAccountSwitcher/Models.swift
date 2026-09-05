@@ -243,6 +243,19 @@ struct TokenActivity: Codable, Equatable, Sendable {
         return Self.checkedTokenTotal(matches.map(\.tokens))
     }
 
+    static func dateKey(
+        for date: Date = Date(),
+        calendar: Calendar = BeijingDateTimeFormatter.calendar
+    ) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
+    }
+
     var latestDateKey: String? {
         dailyBuckets.map(\.startDate).max()
     }
@@ -295,6 +308,9 @@ struct UsageCacheEntry: Codable, Equatable, Sendable {
     let usage: WeeklyUsage
     let fetchedAt: Date
     var tokenActivity: TokenActivity?
+    /// Last successful account/usage/read operation. This is intentionally
+    /// independent from the weekly quota snapshot timestamp.
+    var tokenFetchedAt: Date?
     var lastNotifiedFiveHourResetAt: Date?
 
     init(
@@ -302,12 +318,14 @@ struct UsageCacheEntry: Codable, Equatable, Sendable {
         usage: WeeklyUsage,
         fetchedAt: Date,
         tokenActivity: TokenActivity? = nil,
+        tokenFetchedAt: Date? = nil,
         lastNotifiedFiveHourResetAt: Date? = nil
     ) {
         self.profileID = profileID
         self.usage = usage
         self.fetchedAt = fetchedAt
         self.tokenActivity = tokenActivity
+        self.tokenFetchedAt = tokenFetchedAt
         self.lastNotifiedFiveHourResetAt = lastNotifiedFiveHourResetAt
     }
 }

@@ -77,6 +77,36 @@ struct PlanAndDateFormattingTests {
         #expect(activity.latestDateKey == "2026-09-03")
         #expect(activity.tokens(on: "2026-09-03") == 100)
         #expect(activity.tokens(on: "2026-09-04") == nil)
+
+        let zeroToday = TokenActivity(
+            dailyBuckets: [
+                DailyTokenUsage(startDate: "2026-09-03", tokens: 557_900_000),
+                DailyTokenUsage(startDate: "2026-09-04", tokens: 0),
+            ],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        #expect(zeroToday.tokensForToday(now: now, calendar: calendar) == 0)
+        #expect(zeroToday.tokens(on: "2026-09-04") == 0)
+    }
+
+    @Test func recomputesBeijingNaturalDayAtMidnightBoundary() throws {
+        let beforeMidnight = try #require(
+            ISO8601DateFormatter().date(from: "2026-09-04T15:59:59Z")
+        )
+        let atMidnight = try #require(
+            ISO8601DateFormatter().date(from: "2026-09-04T16:00:00Z")
+        )
+        #expect(TokenActivity.dateKey(for: beforeMidnight) == "2026-09-04")
+        #expect(TokenActivity.dateKey(for: atMidnight) == "2026-09-05")
+
+        let activity = TokenActivity(
+            dailyBuckets: [DailyTokenUsage(startDate: "2026-09-04", tokens: 557)],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        #expect(activity.tokensForToday(now: beforeMidnight) == 557)
+        #expect(activity.tokensForToday(now: atMidnight) == nil)
     }
 
     @Test func formatsDatesInChineseUsingBeijingTime() throws {

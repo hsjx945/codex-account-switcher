@@ -4,7 +4,7 @@ import ServiceManagement
 import SwiftUI
 
 private enum UsageRefreshResult: Sendable {
-    case success(UUID, WeeklyUsage, TokenActivity?, String?, String?)
+    case success(UUID, WeeklyUsage, TokenActivity?, String?, String?, Date?)
     case failure(UUID, String)
 }
 
@@ -43,10 +43,16 @@ enum ActiveIdentityVerificationState: Equatable {
 
 @MainActor
 final class AppModel: ObservableObject {
+    // account/usage/read is a daily aggregate and has no server freshness
+    // timestamp. Keep real-time totals fail-closed until a source with an
+    // explicit per-account real-time contract is integrated.
+    private static let realtimeTokenSourceAvailable = false
     @Published private(set) var accounts: [AccountProfile] = []
     @Published private(set) var activeAccountID: UUID?
     @Published private(set) var usageStates: [UUID: UsageViewState] = [:]
     @Published private(set) var tokenActivities: [UUID: TokenActivity] = [:]
+    @Published private(set) var tokenFetchedAt: [UUID: Date] = [:]
+    @Published private(set) var tokenRefreshPending: Set<UUID> = []
     @Published private(set) var tokenActivityRefreshFinished = false
     @Published private(set) var tokenRefreshErrors: [UUID: String] = [:]
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
@@ -149,15 +155,36 @@ final class AppModel: ObservableObject {
         return TokenActivity.latestCommonDateKey(in: activities)
     }
 
+    /// The UI's primary Token row always names the current Beijing natural day.
+    /// A missing bucket never causes an older server day to replace it.
     var tokenReportingDate: String? {
-        commonTokenDateKey
+        TokenActivity.dateKey()
     }
 
     var reportedTokenTotal: Int? {
-        guard let commonTokenDateKey else { return nil }
-        let values = accounts.compactMap { tokenActivities[$0.id]?.tokens(on: commonTokenDateKey) }
+        // account/usage/read returns daily aggregates without a real-time
+        // freshness guarantee. Keep the aggregate unavailable until a source
+        // explicitly proves real-time semantics for every account.
+        guard !accounts.isEmpty else { return nil }
+        let today = TokenActivity.dateKey()
+        guard tokenRefreshPending.isEmpty,
+              tokenRefreshErrors.isEmpty,
+              tokenActivities.count >= accounts.count,
+              Self.realtimeTokenSourceAvailable,
+              accounts.allSatisfy({ tokenActivities[$0.id] != nil })
+        else { return nil }
+        let values = accounts.compactMap { tokenActivities[$0.id]?.tokens(on: today) }
         guard values.count == accounts.count else { return nil }
         return TokenActivity.checkedTokenTotal(values)
+    }
+
+    var reportedTokenCoverage: (Int, Int) {
+        let today = TokenActivity.dateKey()
+        let count = accounts.reduce(into: 0) { count, account in
+            guard tokenActivities[account.id]?.tokens(on: today) != nil else { return }
+            count += 1
+        }
+        return (count, accounts.count)
     }
 
     var activeIdentityConfirmed: Bool {
@@ -260,6 +287,7 @@ final class AppModel: ObservableObject {
         }
         guard !accounts.isEmpty, usageRefreshTask == nil else { return }
         tokenActivityRefreshFinished = false
+        tokenRefreshPending = Set(accounts.map(\.id))
         usageRefreshTask = Task { [weak self] in
             guard let self else { return }
             await self.performWeeklyUsageRefresh()
@@ -319,17 +347,20 @@ final class AppModel: ObservableObject {
                             let usage = try await codex.readWeeklyUsage(profileHome: home)
                             let tokens: TokenActivity?
                             let tokenError: String?
+                            let tokenFetchedAt: Date?
                             do {
                                 tokens = try await codex.readTokenActivity(profileHome: home)
                                 tokenError = nil
+                                tokenFetchedAt = Date()
                             } catch {
                                 tokens = nil
                                 tokenError = error.localizedDescription
+                                tokenFetchedAt = nil
                             }
                             let identity = try? await codex.readIdentity(profileHome: home)
-                            return (usage, tokens, identity?.planType, tokenError)
+                            return (usage, tokens, identity?.planType, tokenError, tokenFetchedAt)
                         }
-                        return .success(id, values.0, values.1, values.2, values.3)
+                        return .success(id, values.0, values.1, values.2, values.3, values.4)
                     } catch {
                         return .failure(id, error.localizedDescription)
                     }
@@ -337,16 +368,28 @@ final class AppModel: ObservableObject {
             }
             for await result in group {
                 switch result {
-                case let .success(id, usage, activity, planType, tokenError):
+                case let .success(id, usage, activity, planType, tokenError, fetchedAt):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
                     tokenRefreshErrors[id] = tokenError
+                    tokenRefreshPending.remove(id)
                     let previousUsage = usageStates[id]?.displayedUsage
                     usageStates[id] = .loaded(usage)
-                    if let activity { tokenActivities[id] = activity }
+                    if let activity {
+                        // Publish each successful token response before cache
+                        // persistence and before the remaining accounts finish.
+                        tokenActivities[id] = activity
+                        if let fetchedAt {
+                            tokenFetchedAt[id] = fetchedAt
+                        }
+                    }
                     do {
                         try await store.cacheWeeklyUsage(usage, profileID: id)
-                        if let activity {
-                            try await store.cacheTokenActivity(activity, profileID: id)
+                        if let activity, let fetchedAt {
+                            try await store.cacheTokenActivity(
+                                activity,
+                                profileID: id,
+                                fetchedAt: fetchedAt
+                            )
                         }
                         if let planType {
                             try await store.updatePlanType(id: id, planType: planType)
@@ -365,6 +408,7 @@ final class AppModel: ObservableObject {
                 case let .failure(id, message):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
                     tokenRefreshErrors[id] = message
+                    tokenRefreshPending.remove(id)
                     if let cached = usageStates[id]?.displayedUsage {
                         usageStates[id] = .stale(cached, message)
                     } else {
@@ -373,6 +417,7 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+        tokenRefreshPending.removeAll()
         tokenActivityRefreshFinished = true
         await performScheduledWarmupIfNeeded()
     }
@@ -575,6 +620,8 @@ final class AppModel: ObservableObject {
             apply(try await store.loadRegistry())
             usageStates[id] = nil
             tokenActivities[id] = nil
+            tokenFetchedAt[id] = nil
+            tokenRefreshPending.remove(id)
             tokenRefreshErrors[id] = nil
         } catch {
             showError(error)
@@ -713,6 +760,10 @@ final class AppModel: ObservableObject {
         activeAccountID = registry.activeAccountID
         usageStates = usageStates.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         tokenRefreshErrors = tokenRefreshErrors.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
+        tokenRefreshPending = tokenRefreshPending.filter { id in
+            registry.accounts.contains(where: { $0.id == id })
+        }
+        tokenFetchedAt = tokenFetchedAt.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         tokenActivities = tokenActivities.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         warmupStatuses = warmupStatuses.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }
         lastNotifiedFiveHourResetAt = lastNotifiedFiveHourResetAt.filter {
@@ -726,6 +777,9 @@ final class AppModel: ObservableObject {
             usageStates[entry.profileID] = .loaded(entry.usage)
             if let activity = entry.tokenActivity {
                 tokenActivities[entry.profileID] = activity
+            }
+            if let fetchedAt = entry.tokenFetchedAt {
+                tokenFetchedAt[entry.profileID] = fetchedAt
             }
             if let resetAt = entry.lastNotifiedFiveHourResetAt {
                 lastNotifiedFiveHourResetAt[entry.profileID] = resetAt

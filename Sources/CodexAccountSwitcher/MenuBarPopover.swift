@@ -99,10 +99,17 @@ struct MenuBarPopover: View {
 
             if model.settings.showsTokenActivity, !model.accounts.isEmpty {
                 TokenTotalRow(
-                    title: tokenTotalTitle,
+                    title: model.text("token_total_realtime_unavailable"),
                     tokens: model.reportedTokenTotal,
-                    unavailableTitle: model.text("token_unavailable_short"),
-                    cachedTitle: (!model.tokenActivityRefreshFinished || !model.tokenRefreshErrors.isEmpty) ? model.text("cached") : nil
+                    coverageText: String(
+                        format: model.text("token_total_coverage"),
+                        model.reportedTokenCoverage.0,
+                        model.reportedTokenCoverage.1
+                    ),
+                    timezoneHint: model.text("token_today_timezone_hint"),
+                    retryTitle: model.text("refresh"),
+                    isRefreshing: !model.tokenRefreshPending.isEmpty,
+                    onRetry: model.refreshWeeklyUsage
                 )
             }
 
@@ -154,7 +161,9 @@ struct MenuBarPopover: View {
                         tokenActivityRefreshFinished: model.tokenActivityRefreshFinished,
                         showsTokenActivity: model.settings.showsTokenActivity,
                         warmupStatus: model.warmupStatuses[account.id],
-                        tokenRefreshError: model.tokenRefreshErrors[account.id]
+                        tokenRefreshError: model.tokenRefreshErrors[account.id],
+                        tokenFetchedAt: model.tokenFetchedAt[account.id],
+                        tokenRefreshPending: model.tokenRefreshPending.contains(account.id)
                     )
                 }
                 .buttonStyle(.plain)
@@ -171,52 +180,50 @@ struct MenuBarPopover: View {
         }
     }
 
-    private var tokenTotalTitle: String {
-        guard let dateKey = model.tokenReportingDate else {
-            return model.text("total_token_today")
-        }
-        let parts = dateKey.split(separator: "-")
-        guard parts.count == 3, let month = Int(parts[1]), let day = Int(parts[2]) else {
-            return model.format("dated_token_total", dateKey)
-        }
-        let usesChinese = model.settings.language == .simplifiedChinese
-            || (model.settings.language == .system && Locale.preferredLanguages.first?.hasPrefix("zh") == true)
-        let displayDate = usesChinese ? "\(month)月\(day)日" : "\(month)/\(day)"
-        let today = BeijingDateTimeFormatter.calendar.dateComponents([.year, .month, .day], from: Date())
-        if today.month == month, today.day == day,
-           Int(parts[0]) == today.year {
-            return model.text("total_token_today")
-        }
-        return model.format("dated_token_total", displayDate)
-    }
 }
 
 private struct TokenTotalRow: View {
     let title: String
     let tokens: Int?
-    let unavailableTitle: String
-    let cachedTitle: String?
+    let coverageText: String
+    let timezoneHint: String
+    let retryTitle: String
+    let isRefreshing: Bool
+    let onRetry: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(.primary)
 
-            Spacer()
+                Spacer(minLength: 8)
 
-            if tokens != nil, let cachedTitle {
-                Text(cachedTitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                Text(tokens.map(formatTokens) ?? "—")
+                    .font(.system(size: 15, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Button(retryTitle, action: onRetry)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .disabled(isRefreshing)
             }
-            Text(tokens.map(formatTokens) ?? unavailableTitle)
-                .font(.system(size: 15, weight: .bold).monospacedDigit())
-                .foregroundStyle(.primary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(coverageText)
+                Text(timezoneHint)
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 22)
-        .padding(.vertical, 11)
+        .padding(.vertical, 10)
         .background(totalBackground)
     }
 

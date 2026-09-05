@@ -13,6 +13,8 @@ struct AccountRow: View {
     let showsTokenActivity: Bool
     let warmupStatus: WarmupRecord?
     var tokenRefreshError: String? = nil
+    var tokenFetchedAt: Date? = nil
+    var tokenRefreshPending: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
@@ -155,55 +157,82 @@ struct AccountRow: View {
     private var currentTokenContent: some View {
         Divider()
 
-        HStack(alignment: .firstTextBaseline) {
-            Text(tokenRowTitle)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.primary)
-
-            Spacer()
-
-            if let reportedTokens {
-                if tokenRefreshError != nil || !tokenActivityRefreshFinished {
-                    Text(L10n.string("cached", language: language))
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .help(L10n.string("token_cached_hint", language: language))
-                }
-                Text(formatTokens(reportedTokens))
-                    .font(.system(size: 14, weight: .bold).monospacedDigit())
-            } else {
-                Text(L10n.string(
-                    tokenActivityRefreshFinished ? "token_unavailable_short" : "token_scanning_short",
-                    language: language
-                ))
-                    .font(.system(size: 11, weight: .medium))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(L10n.string("today_realtime_token", language: language))
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(.primary)
+
+                Spacer(minLength: 8)
+
+                Text(tokenMainValue)
+                    .font(.system(size: 14, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tokenSummaryText)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(tokenStatusText)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(tokenSummaryText + " · " + tokenStatusText)
         }
     }
 
-    private var reportedTokens: Int? {
-        guard let tokenReportingDate else { return nil }
-        return tokenActivity?.tokens(on: tokenReportingDate)
+    private var tokenMainValue: String {
+        // Official daily buckets do not prove real-time usage. Keep this
+        // primary value unavailable even when a daily bucket is present.
+        return L10n.string("token_realtime_unavailable_short", language: language)
     }
 
-    private var tokenRowTitle: String {
-        guard let tokenReportingDate else {
-            return L10n.string("today_token", language: language)
+    private var tokenSummaryText: String {
+        let todayKey = TokenActivity.dateKey()
+        if let tokenActivity, let todayTokens = tokenActivity.tokens(on: todayKey) {
+            return String(
+                format: L10n.string("token_official_daily_summary", language: language),
+                shortDate(todayKey),
+                formatTokens(todayTokens)
+            )
+        } else if let tokenActivity,
+                  let latestDate = tokenActivity.latestDateKey,
+                  let latestTokens = tokenActivity.tokens(on: latestDate) {
+            let recentSummary = String(
+                format: L10n.string("token_recent_daily_summary", language: language),
+                shortDate(latestDate),
+                formatTokens(latestTokens)
+            )
+            return L10n.string("token_no_data_today", language: language) + " · " + recentSummary
         }
-        let today = BeijingDateTimeFormatter.calendar.dateComponents([.year, .month, .day], from: Date())
-        let todayKey = String(
-            format: "%04d-%02d-%02d",
-            today.year ?? 0,
-            today.month ?? 0,
-            today.day ?? 0
-        )
-        guard tokenReportingDate != todayKey else {
-            return L10n.string("today_token", language: language)
+        return L10n.string("token_no_data_today", language: language)
+    }
+
+    private var tokenStatusText: String {
+        if tokenRefreshPending {
+            let readingTitle = L10n.string("token_reading", language: language)
+            return readingTitle + " · " + lastReadText
+        }
+        if tokenRefreshError != nil {
+            let failedTitle = L10n.string("token_read_failed", language: language)
+            return failedTitle + " · " + lastReadText
+        }
+        return lastReadText
+    }
+
+    private var lastReadText: String {
+        guard let tokenFetchedAt else {
+            return L10n.string("token_read_time_unknown", language: language)
         }
         return String(
-            format: L10n.string("dated_token", language: language),
-            shortDate(tokenReportingDate)
+            format: L10n.string("token_last_successful_read", language: language),
+            BeijingDateTimeFormatter.string(from: tokenFetchedAt, language: language)
         )
     }
 

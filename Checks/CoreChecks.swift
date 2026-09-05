@@ -355,6 +355,30 @@ struct CoreChecks {
             ) == nil,
             "an uncovered server period remains unknown"
         )
+        let zeroToday = TokenActivity(
+            dailyBuckets: [
+                DailyTokenUsage(startDate: "2026-09-03", tokens: 557_900_000),
+                DailyTokenUsage(startDate: "2026-09-04", tokens: 0),
+            ],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        try require(
+            zeroToday.tokensForToday(now: beijingNow, calendar: beijingCalendar) == 0,
+            "a real zero current-day bucket remains zero"
+        )
+        try require(
+            missingToday.tokensForToday(now: beijingNow, calendar: beijingCalendar) == nil
+                && missingToday.latestDateKey == "2026-09-03",
+            "yesterday's bucket never replaces missing today's bucket"
+        )
+        let beforeBeijingMidnight = try requireDate("2026-09-04T15:59:59Z")
+        let afterBeijingMidnight = try requireDate("2026-09-04T16:00:00Z")
+        try require(
+            TokenActivity.dateKey(for: beforeBeijingMidnight) == "2026-09-04"
+                && TokenActivity.dateKey(for: afterBeijingMidnight) == "2026-09-05",
+            "today date recomputes at the Beijing midnight boundary"
+        )
         let beijingDate = try requireDate("2026-09-04T16:26:00Z")
         try require(
             BeijingDateTimeFormatter.string(from: beijingDate) == "9月5日 00:26",
@@ -1034,6 +1058,10 @@ struct CoreChecks {
             "hidden five-hour usage is still normalized"
         )
         try require(
+            appModel.reportedTokenTotal == nil,
+            "daily aggregate never becomes a real-time total"
+        )
+        try require(
             appModel.activeRemainingPercent == 42,
             "menu-bar percentage remains weekly"
         )
@@ -1190,6 +1218,22 @@ struct CoreChecks {
             .filter { $0.hasPrefix("usage-cache.json.switcher-") }
         try require(cacheTemporaryFiles.isEmpty, "failed cache replacement removes temporary file")
 
+        let tokenReadAt = Date(timeIntervalSince1970: 1_750_100_000)
+        try await store.cacheTokenActivity(
+            TokenActivity(
+                dailyBuckets: [DailyTokenUsage(startDate: "2026-09-04", tokens: 557_900_000)],
+                modelBreakdown: [],
+                localModelCoverageStartedAt: nil
+            ),
+            profileID: first.id,
+            fetchedAt: tokenReadAt
+        )
+        let cacheWithTokenTimestamp = try await store.loadUsageCache()
+        try require(
+            cacheWithTokenTimestamp.entries.first(where: { $0.profileID == first.id })?.tokenFetchedAt == tokenReadAt,
+            "token read timestamp persists independently from weekly fetchedAt"
+        )
+
         try require(appModel.activeIdentityState == .mismatch, "precondition identity mismatch")
         await appModel.switchAccount(to: second.id)
         try require(appModel.activeAccountID == second.id, "reopen failure active account reload")
@@ -1228,6 +1272,10 @@ struct CoreChecks {
         try require(
             failureModel.usageStates[first.id]?.refreshError != nil,
             "failed refresh exposes stale-cache warning"
+        )
+        try require(
+            failureModel.tokenFetchedAt[first.id] == tokenReadAt,
+            "failed token refresh preserves last successful read timestamp"
         )
 
         let addingModel = AppModel(

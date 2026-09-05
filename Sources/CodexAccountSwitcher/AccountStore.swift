@@ -145,6 +145,7 @@ actor AccountStore: AccountStoring {
             usage: usage,
             fetchedAt: fetchedAt,
             tokenActivity: existing?.tokenActivity,
+            tokenFetchedAt: existing?.tokenFetchedAt,
             lastNotifiedFiveHourResetAt: existing?.lastNotifiedFiveHourResetAt
         )
         if let index = cache.entries.firstIndex(where: { $0.profileID == profileID }) {
@@ -172,6 +173,7 @@ actor AccountStore: AccountStoring {
         var cache = try loadUsageCache()
         if let index = cache.entries.firstIndex(where: { $0.profileID == profileID }) {
             cache.entries[index].tokenActivity = activity
+            cache.entries[index].tokenFetchedAt = fetchedAt
         } else {
             return
         }

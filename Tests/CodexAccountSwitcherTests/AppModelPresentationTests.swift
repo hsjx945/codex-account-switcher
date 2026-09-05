@@ -75,7 +75,7 @@ struct AppModelPresentationTests {
         #expect(await model.updateNickname(id: UUID(), nickname: "Unsaved") == false)
     }
 
-    @Test func cachedTokenDataStaysMarkedUntilSuccessfulRefresh() async throws {
+    @Test func tokenReadFailurePreservesLastSuccessfulReadTime() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "token-state-check-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
@@ -85,7 +85,12 @@ struct AppModelPresentationTests {
         try await store.addProfile(profile)
         try await store.cacheWeeklyUsage(WeeklyUsage(remainingPercent: 50, resetsAt: nil), profileID: profile.id)
         let activity = TokenActivity(dailyBuckets: [DailyTokenUsage(startDate: "2026-09-04", tokens: 123)], modelBreakdown: [], localModelCoverageStartedAt: nil)
-        try await store.cacheTokenActivity(activity, profileID: profile.id)
+        let successfulReadAt = Date(timeIntervalSince1970: 1_700_001_000)
+        try await store.cacheTokenActivity(
+            activity,
+            profileID: profile.id,
+            fetchedAt: successfulReadAt
+        )
         let executable = root.appending(path: "fixture-codex")
         func writeFixture(tokenResult: String) throws {
             let script = """
@@ -113,12 +118,76 @@ struct AppModelPresentationTests {
         #expect(model.tokenActivityRefreshFinished)
         #expect(model.tokenActivities[profile.id] == activity)
         #expect(model.tokenRefreshErrors[profile.id] != nil)
+        #expect(model.tokenFetchedAt[profile.id] == successfulReadAt)
         #expect(model.activeRemainingPercent == 75)
         try writeFixture(tokenResult: "{\"id\":1,\"result\":{\"dailyUsageBuckets\":[{\"startDate\":\"2026-09-04\",\"tokens\":456}]}}")
         model.refreshWeeklyUsage()
         await model.waitForWeeklyUsageRefresh()
         #expect(model.tokenRefreshErrors[profile.id] == nil)
-        #expect(model.reportedTokenTotal == 456)
+        #expect(model.tokenFetchedAt[profile.id] != successfulReadAt)
+        #expect(model.reportedTokenTotal == nil)
+
+        let persisted = try await store.loadUsageCache()
+        #expect(persisted.entries.first?.tokenFetchedAt != successfulReadAt)
+    }
+
+    @Test func tokenCoverageUsesOnlyCurrentBeijingDayWithoutHistoricalFallback() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "token-coverage-check-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AccountStore(
+            baseURL: root.appending(path: "store"),
+            activeHomeURL: root.appending(path: "active")
+        )
+        let today = TokenActivity.dateKey()
+        let first = AccountProfile(
+            id: UUID(), displayName: "First", email: "first@example.com", accountID: "first", createdAt: Date()
+        )
+        let second = AccountProfile(
+            id: UUID(), displayName: "Second", email: "second@example.com", accountID: "second", createdAt: Date()
+        )
+        for profile in [first, second] {
+            let home = try await store.createProfileDirectory(id: profile.id)
+            try Data("fixture-only".utf8).write(to: home.appending(path: "auth.json"))
+            try await store.addProfile(profile)
+            try await store.cacheWeeklyUsage(
+                WeeklyUsage(remainingPercent: 50, resetsAt: nil),
+                profileID: profile.id
+            )
+        }
+        try await store.cacheTokenActivity(
+            TokenActivity(
+                dailyBuckets: [DailyTokenUsage(startDate: today, tokens: 0)],
+                modelBreakdown: [],
+                localModelCoverageStartedAt: nil
+            ),
+            profileID: first.id,
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        try await store.cacheTokenActivity(
+            TokenActivity(
+                dailyBuckets: [DailyTokenUsage(startDate: "2026-09-04", tokens: 557_900_000)],
+                modelBreakdown: [],
+                localModelCoverageStartedAt: nil
+            ),
+            profileID: second.id,
+            fetchedAt: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+
+        let model = AppModel(
+            store: store,
+            codex: CodexClient(locator: CodexExecutableLocator(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))),
+            switchService: PresentationNoopSwitch(),
+            operationGate: AccountOperationGate()
+        )
+        await model.start()
+
+        #expect(model.tokenReportingDate == today)
+        #expect(model.tokenActivities[first.id]?.tokens(on: today) == 0)
+        #expect(model.tokenActivities[second.id]?.tokens(on: today) == nil)
+        #expect(model.reportedTokenCoverage.0 == 1)
+        #expect(model.reportedTokenCoverage.1 == 2)
+        // Daily aggregate data is never presented as a real-time total.
+        #expect(model.reportedTokenTotal == nil)
     }
 }
 

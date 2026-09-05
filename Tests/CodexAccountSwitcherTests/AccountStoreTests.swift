@@ -177,6 +177,50 @@ struct AccountStoreTests {
         #expect(try permissions(fixture.support.appending(path: "usage-cache.json")) == 0o600)
     }
 
+    @Test func keepsTokenFetchedAtSeparateFromWeeklyFetchedAt() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.remove() }
+        let accountID = UUID()
+        let profile = AccountProfile(
+            id: accountID,
+            displayName: "Freshness",
+            email: "freshness@example.com",
+            accountID: "freshness-account",
+            createdAt: Date(),
+            lastUsedAt: nil
+        )
+        try await fixture.store.importCurrentProfile(profile)
+
+        let weeklyFetchedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let tokenFetchedAt = Date(timeIntervalSince1970: 1_700_001_000)
+        let activity = TokenActivity(
+            dailyBuckets: [DailyTokenUsage(startDate: "2026-09-04", tokens: 557_900_000)],
+            modelBreakdown: [],
+            localModelCoverageStartedAt: nil
+        )
+        try await fixture.store.cacheWeeklyUsage(
+            WeeklyUsage(remainingPercent: 50, resetsAt: nil),
+            profileID: accountID,
+            fetchedAt: weeklyFetchedAt
+        )
+        try await fixture.store.cacheTokenActivity(
+            activity,
+            profileID: accountID,
+            fetchedAt: tokenFetchedAt
+        )
+
+        // A later weekly refresh must preserve the dedicated token timestamp.
+        try await fixture.store.cacheWeeklyUsage(
+            WeeklyUsage(remainingPercent: 40, resetsAt: nil),
+            profileID: accountID,
+            fetchedAt: Date(timeIntervalSince1970: 1_700_002_000)
+        )
+        let entry = try await fixture.store.loadUsageCache().entries[0]
+        #expect(entry.fetchedAt == Date(timeIntervalSince1970: 1_700_002_000))
+        #expect(entry.tokenFetchedAt == tokenFetchedAt)
+        #expect(entry.tokenFetchedAt != entry.fetchedAt)
+    }
+
     @Test func persistsSettingsAndLoadsLegacyDefaults() async throws {
         let fixture = try StoreFixture()
         defer { fixture.remove() }
@@ -259,6 +303,7 @@ struct AccountStoreTests {
         #expect(cache.entries[0].usage.remainingPercent == 73)
         #expect(cache.entries[0].usage.fiveHourRemainingPercent == nil)
         #expect(cache.entries[0].usage.fiveHourResetsAt == nil)
+        #expect(cache.entries[0].tokenFetchedAt == nil)
     }
 
     @Test func migratesLegacyApplicationSupportDirectory() async throws {
