@@ -93,7 +93,7 @@ struct MenuBarPopover: View {
 
             if model.settings.showsTokenActivity {
                 TokenTotalRow(
-                    title: model.text("token_unassigned_local_today"),
+                    title: model.text("token_today_consumed"),
                     usage: model.localTokenSnapshot?.usage,
                     models: model.localTokenSnapshot?.models ?? [],
                     language: model.settings.language,
@@ -194,6 +194,7 @@ struct TokenTotalRow: View {
     let isRefreshing: Bool
     @Environment(\.colorScheme) private var colorScheme
     @State private var modelsExpanded: Bool
+    @State private var hoverTask: Task<Void, Never>?
 
     init(
         title: String,
@@ -216,57 +217,89 @@ struct TokenTotalRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 8)
-
-                Text(usage.map { $0.total.formatted(.number.grouping(.automatic)) } ?? "—")
-                    .font(.system(size: 20, weight: .bold).monospacedDigit())
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                if isRefreshing {
-                    ProgressView().controlSize(.mini)
-                }
-            }
-
-            if !models.isEmpty {
-                Divider()
-                HStack {
-                    Text(L10n.string("local_token_models", language: language))
-                    Spacer()
-                    Text("Token")
-                        .frame(width: 65, alignment: .trailing)
-                    Text(L10n.string("api_value", language: language))
-                        .frame(width: 105, alignment: .trailing)
-                }
-                .font(.system(size: 12, weight: .semibold))
-                if models.count > 4 {
-                    ScrollView { modelRows }.frame(height: 132)
-                } else {
-                    modelRows
-                }
-                HStack {
-                    Text(L10n.string(models.allSatisfy { APITokenValuation.estimate($0) != nil } ? "api_total" : "api_subtotal", language: language))
-                    Spacer()
-                    Text(APITokenValuation.dollars(APITokenValuation.subtotal(models)))
-                        .monospacedDigit()
-                }
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
                 .font(.system(size: 15, weight: .semibold))
-
-            }
-
-
+            Spacer(minLength: 0)
+            Text(usage.map { TokenAmountFormatter.compact($0.total) } ?? "—")
+                .font(.system(size: 22, weight: .bold).monospacedDigit())
+            Text(APITokenValuation.dollars(APITokenValuation.subtotal(models))
+                 + (hasUnpricedUsage ? "*" : ""))
+                .font(.system(size: 17, weight: .semibold).monospacedDigit())
+            if isRefreshing { ProgressView().controlSize(.mini) }
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 10)
+        .lineLimit(1)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
         .background(totalBackground)
         .foregroundStyle(.primary)
-        .help(statusText + "\n" + detailText + "\n" + L10n.string("api_estimate_detail", language: language))
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            hoverTask?.cancel()
+            if hovering {
+                hoverTask = Task { @MainActor in
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    guard !Task.isCancelled else { return }
+                    modelsExpanded = true
+                }
+            }
+        }
+        .onDisappear {
+            hoverTask?.cancel()
+            hoverTask = nil
+            modelsExpanded = false
+        }
+        .onTapGesture { modelsExpanded.toggle() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { modelsExpanded.toggle() }
+        .popover(isPresented: $modelsExpanded, arrowEdge: .trailing) {
+            details
+        }
+    }
+
+    private var hasUnpricedUsage: Bool {
+        models.contains { APITokenValuation.estimate($0) == nil }
+    }
+
+    var details: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(title).font(.system(size: 17, weight: .bold))
+                Spacer()
+                Text(usage.map { $0.total.formatted() } ?? "—")
+                    .font(.system(size: 17, weight: .bold).monospacedDigit())
+            }
+            HStack(spacing: 10) {
+                component(L10n.string("local_token_uncached_input", language: language), usage?.uncachedInput)
+                component(L10n.string("local_token_cached_read", language: language), usage?.cachedInput)
+                component(L10n.string("local_token_output", language: language), usage?.output)
+            }
+            Divider()
+            HStack {
+                Text(L10n.string("local_token_models", language: language))
+                Spacer()
+                Text("Token").frame(width: 65, alignment: .trailing)
+                Text(L10n.string("api_value", language: language)).frame(width: 105, alignment: .trailing)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            if models.count > 6 {
+                ScrollView { modelRows }.frame(height: 190)
+            } else { modelRows }
+            Divider()
+            HStack {
+                Text(L10n.string(hasUnpricedUsage ? "api_subtotal" : "api_total", language: language))
+                Spacer()
+                Text(APITokenValuation.dollars(APITokenValuation.subtotal(models))).monospacedDigit()
+            }
+            .font(.system(size: 15, weight: .semibold))
+            Text(L10n.string("api_estimate_note", language: language))
+                .font(.system(size: 11))
+                .help(L10n.string("api_estimate_detail", language: language))
+            Text(statusText).font(.system(size: 11))
+        }
+        .foregroundStyle(.primary)
+        .padding(18)
+        .frame(width: 440)
     }
 
     private var modelRows: some View {
@@ -299,13 +332,7 @@ struct TokenTotalRow: View {
     }
 
     private func formatTokens(_ tokens: Int) -> String {
-        if tokens >= 1_000_000 {
-            return String(format: "%.1fM", Double(tokens) / 1_000_000)
-        }
-        if tokens >= 1_000 {
-            return String(format: "%.1fK", Double(tokens) / 1_000)
-        }
-        return String(tokens)
+        TokenAmountFormatter.compact(tokens)
     }
 
     private func component(_ label: String, _ value: Int?) -> some View {

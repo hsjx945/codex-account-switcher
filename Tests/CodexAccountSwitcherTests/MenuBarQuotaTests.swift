@@ -3,6 +3,12 @@ import Testing
 @testable import CodexAccountSwitcher
 
 struct MenuBarQuotaTests {
+    @Test func formatsCompactTokenUnitsWithoutThousandUnitOverflow() {
+        for (count, expected) in [(999, "999"), (1_000, "1.0K"), (999_999, "1.0M"), (350_049_835, "350.0M"), (999_999_999, "1.0B"), (2_500_000_000, "2.5B")] {
+            #expect(TokenAmountFormatter.compact(count) == expected)
+        }
+    }
+
     @Test func proHidesEvenCachedFiveHourQuota() {
         let usage = WeeklyUsage(remainingPercent: 77, resetsAt: nil, fiveHourRemainingPercent: 100)
         #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false, showsFiveHour: false).title == "77%")

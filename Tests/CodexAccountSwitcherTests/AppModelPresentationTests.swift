@@ -43,15 +43,22 @@ struct AppModelPresentationTests {
         let models = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "local-model"].map {
             LocalModelTokenUsage(model: $0, usage: LocalTokenComponents(total: 4_000_000, uncachedInput: 1_000_000, cachedInput: 2_000_000, output: 1_000_000))
         }
-        let row = TokenTotalRow(title: "今日 Token · 本机未分账号", usage: LocalTokenComponents(total: 16_000_000, uncachedInput: 4_000_000, cachedInput: 8_000_000, output: 4_000_000), models: models, language: .simplifiedChinese, statusText: "已更新至 9 月 5 日 16:00:00", detailText: "Synthetic UI fixture", isRefreshing: false)
+        let row = TokenTotalRow(title: "今日消耗 Token", usage: LocalTokenComponents(total: 16_000_000, uncachedInput: 4_000_000, cachedInput: 8_000_000, output: 4_000_000), models: models, language: .simplifiedChinese, statusText: "已更新至 9 月 5 日 16:00:00", detailText: "Synthetic UI fixture", isRefreshing: false)
         let renderer = ImageRenderer(content: row.frame(width: 420).environment(\.colorScheme, .light))
         renderer.scale = 2
         let cgImage = try #require(renderer.cgImage)
         #expect(cgImage.width == 840)
-        #expect(cgImage.height > 300)
+        #expect(cgImage.height < 180)
+        let detailRenderer = ImageRenderer(content: row.details.background(Color.white).environment(\.colorScheme, .light))
+        detailRenderer.scale = 2
+        let detailImage = try #require(detailRenderer.cgImage)
+        #expect(detailImage.width == 880)
+        #expect(detailImage.height > 400)
         if let path = ProcessInfo.processInfo.environment["SWITCHER_TEST_RENDER_PATH"] {
             let rep = NSBitmapImageRep(cgImage: cgImage)
             try #require(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))
+            let detailRep = NSBitmapImageRep(cgImage: detailImage)
+            try #require(detailRep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path + ".details.png"))
         }
     }
 

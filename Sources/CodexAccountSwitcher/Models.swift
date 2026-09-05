@@ -636,3 +636,15 @@ struct MenuBarQuotaPresentation: Equatable {
         title = (showsFiveHour ? "\(fiveHour) / " : "") + "\(min(max(usage.remainingPercent, 0), 100))%" + (isStale ? "!" : "")
     }
 }
+
+
+enum TokenAmountFormatter {
+    static func compact(_ count: Int) -> String {
+        // Round before choosing the suffix so 999,999 never displays 1000.0K.
+        let value = Double(count)
+        if value >= 999_950_000 { return String(format: "%.1fB", value / 1_000_000_000) }
+        if value >= 999_950 { return String(format: "%.1fM", value / 1_000_000) }
+        if value >= 1_000 { return String(format: "%.1fK", value / 1_000) }
+        return String(count)
+    }
+}
