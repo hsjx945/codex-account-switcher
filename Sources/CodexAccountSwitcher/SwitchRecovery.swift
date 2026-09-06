@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import Darwin
 
 enum SwitchJournalPhase: String, Codable, Sendable {
     case prepared
@@ -21,12 +22,14 @@ struct SwitchJournal: Codable, Equatable, Sendable {
     let backupFileName: String
     let createdAt: Date
     var phase: SwitchJournalPhase
+    var keyStorage: String? = nil
 }
 
 enum SwitchRecoveryError: LocalizedError, Sendable {
     case invalidKeychainItem
     case keychainFailure(OSStatus)
     case invalidJournal
+    case unsafeLocalKey
     case encryptedBackupMissing
     case encryptedBackupInvalid
 
@@ -36,6 +39,8 @@ enum SwitchRecoveryError: LocalizedError, Sendable {
             "The rollback encryption key is invalid."
         case let .keychainFailure(status):
             "The rollback encryption key could not be accessed (Keychain status \(status))."
+        case .unsafeLocalKey:
+            "The local recovery key is missing, invalid, or has unsafe permissions. No credentials were changed."
         case .invalidJournal:
             "The switch recovery journal contains an invalid backup reference."
         case .encryptedBackupMissing:
@@ -51,6 +56,7 @@ protocol RollbackKeyProviding: Sendable {
 }
 
 struct KeychainRollbackKeyProvider: RollbackKeyProviding {
+    var createsIfMissing = true
     private let service = "com.liuzhao.codex-account-switcher.rollback-key"
     private let account = "credential-backup"
 
@@ -61,6 +67,7 @@ struct KeychainRollbackKeyProvider: RollbackKeyProviding {
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
         ]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -70,7 +77,7 @@ struct KeychainRollbackKeyProvider: RollbackKeyProviding {
             }
             return SymmetricKey(data: data)
         }
-        guard status == errSecItemNotFound else {
+        guard status == errSecItemNotFound, createsIfMissing else {
             throw SwitchRecoveryError.keychainFailure(status)
         }
 
@@ -96,6 +103,67 @@ struct KeychainRollbackKeyProvider: RollbackKeyProviding {
     }
 }
 
+/// User-private local storage, matching the app's existing credential-file boundary.
+/// Does not read, change, or grant access to the legacy Keychain item.
+struct LocalRollbackKeyProvider: RollbackKeyProviding {
+    let directory: URL
+    var createsIfMissing = true
+
+    func loadOrCreateKey() throws -> SymmetricKey {
+        let fm = FileManager.default
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+        var directoryInfo = stat()
+        guard lstat(directory.path, &directoryInfo) == 0,
+              directoryInfo.st_mode & S_IFMT == S_IFDIR,
+              directoryInfo.st_uid == getuid(),
+              directoryInfo.st_mode & 0o077 == 0 else {
+            throw SwitchRecoveryError.unsafeLocalKey
+        }
+        let path = directory.appending(path: "rollback-key-v2.bin").path
+        var descriptor = Darwin.open(path, O_RDONLY | O_NOFOLLOW)
+        if descriptor < 0, errno == ENOENT, createsIfMissing {
+            let bytes = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+            let created = Darwin.open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+            if created >= 0 {
+                defer { Darwin.close(created) }
+                try bytes.withUnsafeBytes { buffer in
+                    var offset = 0
+                    while offset < buffer.count {
+                        let count = Darwin.write(created, buffer.baseAddress!.advanced(by: offset), buffer.count - offset)
+                        if count < 0, errno == EINTR { continue }
+                        guard count > 0 else { throw SwitchRecoveryError.unsafeLocalKey }
+                        offset += count
+                    }
+                }
+                guard fsync(created) == 0 else { throw SwitchRecoveryError.unsafeLocalKey }
+            } else if errno != EEXIST {
+                throw SwitchRecoveryError.unsafeLocalKey
+            }
+            descriptor = Darwin.open(path, O_RDONLY | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else { throw SwitchRecoveryError.unsafeLocalKey }
+        defer { Darwin.close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              info.st_uid == getuid(), info.st_mode & 0o077 == 0,
+              info.st_nlink == 1, info.st_size == 32 else {
+            throw SwitchRecoveryError.unsafeLocalKey
+        }
+        var bytes = Data(count: 32)
+        try bytes.withUnsafeMutableBytes { buffer in
+            var offset = 0
+            while offset < buffer.count {
+                let count = Darwin.read(descriptor, buffer.baseAddress!.advanced(by: offset), buffer.count - offset)
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else { throw SwitchRecoveryError.unsafeLocalKey }
+                offset += count
+            }
+        }
+        return SymmetricKey(data: bytes)
+    }
+}
+
 protocol SwitchRecoveryPersisting: Sendable {
     func prepare(
         originalCredential: Data,
@@ -112,13 +180,13 @@ protocol SwitchRecoveryPersisting: Sendable {
 actor SwitchRecoveryStore: SwitchRecoveryPersisting {
     private let baseURL: URL
     private let fileManager: FileManager
-    private let keyProvider: any RollbackKeyProviding
+    private let keyProvider: (any RollbackKeyProviding)?
     private var cachedKey: SymmetricKey?
 
     init(
         baseURL: URL? = nil,
         fileManager: FileManager = .default,
-        keyProvider: any RollbackKeyProviding = KeychainRollbackKeyProvider()
+        keyProvider: (any RollbackKeyProviding)? = nil
     ) {
         if let baseURL {
             self.baseURL = baseURL
@@ -133,13 +201,25 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
         self.keyProvider = keyProvider
     }
 
-    // Reuse only a key already released by Keychain during this process.
-    // Never change the item's ACL or substitute a different key on denial.
     private func rollbackKey() throws -> SymmetricKey {
+        guard let keyProvider else {
+            return try LocalRollbackKeyProvider(directory: baseURL).loadOrCreateKey()
+        }
         if let cachedKey { return cachedKey }
         let key = try keyProvider.loadOrCreateKey()
         cachedKey = key
         return key
+    }
+
+    private func recoveryKey(for journal: SwitchJournal) throws -> SymmetricKey {
+        if journal.keyStorage == "local-v2" {
+            return try LocalRollbackKeyProvider(directory: baseURL, createsIfMissing: false).loadOrCreateKey()
+        }
+        guard journal.keyStorage == nil else { throw SwitchRecoveryError.invalidJournal }
+        // Old journals keep their original encryption key. Never substitute a new
+        // local key if legacy authorization fails; keep the recovery files intact.
+        if keyProvider != nil { return try rollbackKey() }
+        return try KeychainRollbackKeyProvider(createsIfMissing: false).loadOrCreateKey()
     }
 
     private var journalURL: URL { baseURL.appending(path: "switch-journal.json") }
@@ -168,7 +248,8 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
             desktopWasRunning: desktopWasRunning,
             backupFileName: backupFileName,
             createdAt: Date(),
-            phase: .prepared
+            phase: .prepared,
+            keyStorage: keyProvider == nil ? "local-v2" : nil
         )
         do {
             try writeJournal(journal)
@@ -201,7 +282,7 @@ actor SwitchRecoveryStore: SwitchRecoveryPersisting {
         }
         do {
             let box = try AES.GCM.SealedBox(combined: Data(contentsOf: url))
-            return try AES.GCM.open(box, using: rollbackKey())
+            return try AES.GCM.open(box, using: recoveryKey(for: journal))
         } catch let error as SwitchRecoveryError {
             throw error
         } catch {
