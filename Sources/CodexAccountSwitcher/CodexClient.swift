@@ -175,9 +175,52 @@ private final class StderrDrain: @unchecked Sendable {
     }
 }
 
+// Own the duplicated descriptor independently of Foundation's FileHandle state.
+// A closed child stdin must become a Swift error, never SIGPIPE or a write
+// through the Foundation FileHandle implementation implicated in crash reports.
+final class RPCInputWriter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var descriptor: Int32
+
+    init(handle: FileHandle) throws {
+        let descriptor = fcntl(handle.fileDescriptor, F_DUPFD_CLOEXEC, 0)
+        guard descriptor >= 0 else { throw CodexClientError.connectionClosed }
+        guard fcntl(descriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            Darwin.close(descriptor)
+            throw CodexClientError.connectionClosed
+        }
+        self.descriptor = descriptor
+    }
+
+    deinit { close() }
+
+    func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard descriptor >= 0 else { return }
+        Darwin.close(descriptor)
+        descriptor = -1
+    }
+
+    func write(_ data: Data) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard descriptor >= 0 else { throw CodexClientError.connectionClosed }
+        try data.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let count = Darwin.write(descriptor, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
+                if count < 0 && errno == EINTR { continue }
+                guard count > 0 else { throw CodexClientError.connectionClosed }
+                offset += count
+            }
+        }
+    }
+}
+
 private actor JSONRPCSession {
     private let process: Process
-    private let input: FileHandle
+    private let input: RPCInputWriter
     private let output: FileHandle
     private let errorOutput: FileHandle
     private let pump: LinePump
@@ -203,7 +246,7 @@ private actor JSONRPCSession {
         let pump = LinePump(handle: outputPipe.fileHandleForReading)
         let stderrDrain = StderrDrain(handle: errorPipe.fileHandleForReading)
         self.process = process
-        input = inputPipe.fileHandleForWriting
+        input = try RPCInputWriter(handle: inputPipe.fileHandleForWriting)
         output = outputPipe.fileHandleForReading
         errorOutput = errorPipe.fileHandleForReading
         self.pump = pump
@@ -211,7 +254,12 @@ private actor JSONRPCSession {
 
         do {
             try process.run()
+            try inputPipe.fileHandleForWriting.close()
         } catch {
+            input.close()
+            output.readabilityHandler = nil
+            errorOutput.readabilityHandler = nil
+            if process.isRunning { process.terminate() }
             throw CodexClientError.processLaunchFailed(error.localizedDescription)
         }
     }
@@ -258,7 +306,7 @@ private actor JSONRPCSession {
     func stop() {
         output.readabilityHandler = nil
         errorOutput.readabilityHandler = nil
-        try? input.close()
+        input.close()
         if process.isRunning {
             process.terminate()
         }
@@ -318,7 +366,7 @@ private actor JSONRPCSession {
         }
         var data = try JSONSerialization.data(withJSONObject: object)
         data.append(0x0A)
-        try input.write(contentsOf: data)
+        try input.write(data)
     }
 }
 

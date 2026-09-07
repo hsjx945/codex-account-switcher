@@ -3,6 +3,51 @@ import Testing
 @testable import CodexAccountSwitcher
 
 struct CodexClientTests {
+    @Test func writerSurvivesOriginalHandleClosure() throws {
+        let pipe = Pipe()
+        let writer = try RPCInputWriter(handle: pipe.fileHandleForWriting)
+        try pipe.fileHandleForWriting.close()
+        try writer.write(Data("hello".utf8))
+        writer.close()
+        #expect(try pipe.fileHandleForReading.readToEnd() == Data("hello".utf8))
+    }
+
+    @Test func brokenPipeReturnsErrorInsteadOfTerminatingApp() throws {
+        let pipe = Pipe()
+        let writer = try RPCInputWriter(handle: pipe.fileHandleForWriting)
+        try pipe.fileHandleForReading.close()
+        #expect(throws: CodexClientError.connectionClosed) {
+            try writer.write(Data("hello".utf8))
+        }
+    }
+
+    @Test func repeatedCloseAndWriteAfterCloseAreSafe() throws {
+        let pipe = Pipe()
+        let writer = try RPCInputWriter(handle: pipe.fileHandleForWriting)
+        writer.close()
+        writer.close()
+        #expect(throws: CodexClientError.connectionClosed) {
+            try writer.write(Data("hello".utf8))
+        }
+    }
+
+    @Test func earlyChildExitReturnsConnectionClosed() async throws {
+        let fixture = try ScriptFixture(body: "exit 0")
+        defer { fixture.remove() }
+        let client = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: fixture.executable),
+            requestTimeout: .seconds(2)
+        )
+        for _ in 0..<30 {
+            do {
+                _ = try await client.readIdentity(profileHome: fixture.root)
+                Issue.record("Exited child should fail")
+            } catch let error as CodexClientError {
+                #expect(error == .connectionClosed)
+            }
+        }
+    }
+
     @Test func performsHandshakeBeforeReadingFiveHourAndWeeklyUsage() async throws {
         let fixture = try ScriptFixture(body: """
         state=0

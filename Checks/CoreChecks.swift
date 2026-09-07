@@ -286,6 +286,28 @@ struct CoreChecks {
             "unavailable launch-at-login state"
         )
 
+        let ownedPipe = Pipe()
+        let writer = try RPCInputWriter(handle: ownedPipe.fileHandleForWriting)
+        try ownedPipe.fileHandleForWriting.close()
+        try writer.write(Data("hello".utf8))
+        writer.close()
+        writer.close()
+        let written = try ownedPipe.fileHandleForReading.readToEnd()
+        try require(written == Data("hello".utf8), "writer owns its descriptor independently")
+        do {
+            try writer.write(Data("closed".utf8))
+            throw CheckFailure.failed("write after close must fail")
+        } catch CodexClientError.connectionClosed {}
+        let brokenPipe = Pipe()
+        let brokenWriter = try RPCInputWriter(handle: brokenPipe.fileHandleForWriting)
+        try brokenPipe.fileHandleForReading.close()
+        do {
+            try brokenWriter.write(Data("broken".utf8))
+            throw CheckFailure.failed("broken pipe must fail without SIGPIPE")
+        } catch CodexClientError.connectionClosed {}
+        brokenWriter.close()
+        print("Pipe ownership, repeated close and broken-pipe checks passed")
+
         let weekly = try WeeklyUsageNormalizer.normalize([
             RateLimitWindow(usedPercent: 90, windowDurationMins: 300, resetsAt: 1),
             RateLimitWindow(usedPercent: 58, windowDurationMins: 10_080, resetsAt: 1_750_000_000),
@@ -479,6 +501,20 @@ struct CoreChecks {
         let support = root.appending(path: "support")
         try fileManager.createDirectory(at: activeHome, withIntermediateDirectories: true)
         try Data("first".utf8).write(to: activeHome.appending(path: "auth.json"))
+
+        let earlyExit = root.appending(path: "early-exit")
+        try createExecutable(at: earlyExit, body: "exit 0")
+        let earlyExitClient = CodexClient(
+            locator: CodexExecutableLocator(explicitURL: earlyExit),
+            requestTimeout: .seconds(2)
+        )
+        for _ in 0..<100 {
+            do {
+                _ = try await earlyExitClient.readIdentity(profileHome: activeHome)
+                throw CheckFailure.failed("early child exit must fail")
+            } catch CodexClientError.connectionClosed {}
+        }
+        print("100 early child exits handled without crashing")
 
         let store = AccountStore(baseURL: support, activeHomeURL: activeHome)
         let first = AccountProfile(
