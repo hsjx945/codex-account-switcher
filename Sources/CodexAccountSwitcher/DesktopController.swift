@@ -76,7 +76,19 @@ struct DesktopController: DesktopControlling {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         do {
-            _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+            let application = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+            try await waitForDesktopWindow {
+                guard !application.isTerminated, application.isFinishedLaunching else { return false }
+                let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+                return windows.contains { window in
+                    guard (window[kCGWindowOwnerPID as String] as? Int32) == application.processIdentifier,
+                          (window[kCGWindowLayer as String] as? Int) == 0,
+                          let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                          let width = bounds["Width"] as? Double,
+                          let height = bounds["Height"] as? Double else { return false }
+                    return width > 200 && height > 150
+                }
+            }
         } catch {
             throw DesktopControllerError.reopenFailed
         }
@@ -107,4 +119,22 @@ struct DesktopController: DesktopControlling {
     private func isDesktopRunning(processIdentifier: pid_t) -> Bool {
         runningDesktopApplications.contains { $0.processIdentifier == processIdentifier }
     }
+}
+
+// Opening a process is not the same as showing its desktop window.
+func waitForDesktopWindow(
+    timeout: Duration = .seconds(30),
+    isReady: @Sendable () -> Bool
+) async throws {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    var readySince: ContinuousClock.Instant?
+    while ContinuousClock.now < deadline {
+        try Task.checkCancellation()
+        if isReady() {
+            if let readySince, readySince.duration(to: .now) >= .milliseconds(500) { return }
+            if readySince == nil { readySince = .now }
+        } else { readySince = nil }
+        try await Task.sleep(for: .milliseconds(100))
+    }
+    throw DesktopControllerError.reopenFailed
 }

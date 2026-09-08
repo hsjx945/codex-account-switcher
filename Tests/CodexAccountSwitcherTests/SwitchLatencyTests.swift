@@ -169,7 +169,8 @@ struct SwitchFeedbackTests {
         #expect(model.switchedAccount?.id == profile.id)
         #expect(controller.popoverShouldClose(popover))
         controller.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
-        #expect(model.switchedAccount == nil)
+        #expect(model.switchedAccount?.id == profile.id)
+        model.dismissSwitchResult()
         _ = MenuBarPopover(model: model)
     }
 
@@ -211,4 +212,21 @@ private actor FeedbackSwitch: SwitchServicing {
 private struct FailedFeedbackSwitch: SwitchServicing {
     func recoverIfNeeded() async throws {}
     func switchAccount(to id: UUID) async throws { throw CodexClientError.timeout }
+}
+
+@MainActor
+struct DesktopReadinessTests {
+    @Test func doesNotFinishBeforeWindowIsReady() async throws {
+        let started = ContinuousClock.now
+        try await waitForDesktopWindow(timeout: .seconds(3)) {
+            started.duration(to: .now) >= .milliseconds(400)
+        }
+        #expect(started.duration(to: .now) >= .milliseconds(900))
+    }
+    @Test func missingWindowFailsInsteadOfReportingSuccess() async {
+        do {
+            try await waitForDesktopWindow(timeout: .milliseconds(100)) { false }
+            Issue.record("Missing desktop window must not succeed")
+        } catch {}
+    }
 }
