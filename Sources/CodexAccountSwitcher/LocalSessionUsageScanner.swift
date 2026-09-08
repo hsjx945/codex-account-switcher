@@ -261,7 +261,7 @@ actor LocalSessionUsageScanner {
         }
         let cumulativeTuple = Self.tuple(totalRaw)
         let tupleFields = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
-        if tupleFields.contains(where: { totalRaw[$0] != nil }), cumulativeTuple == nil {
+        if tupleFields.contains(where: { totalRaw[$0] != nil }), cumulativeTuple == nil, !Self.hasOnlyTotal(totalRaw) {
             state.parseError = "invalid token_count cumulative components"
             return
         }
@@ -269,13 +269,15 @@ actor LocalSessionUsageScanner {
         if cumulativeTuple == nil, cumulativeTotal == state.lastCumulativeTotal { return }
         let lastRaw = info["last_token_usage"] as? [String: Any]
         let lastTuple = lastRaw.flatMap(Self.tuple)
-        if lastRaw != nil, lastTuple == nil {
+        if let lastRaw, lastTuple == nil, !Self.hasOnlyTotal(lastRaw) {
             state.parseError = "invalid token_count last usage"
             return
         }
         let usage: LocalTokenComponents
         if let lastTuple, let components = lastTuple.components {
             usage = components
+        } else if let lastRaw, Self.hasOnlyTotal(lastRaw), let total = Self.integer(lastRaw["total_tokens"]) {
+            usage = LocalTokenComponents(total: total, uncachedInput: nil, cachedInput: nil, output: nil)
         } else {
             let delta = cumulativeTotal >= state.lastCumulativeTotal ? cumulativeTotal - state.lastCumulativeTotal : cumulativeTotal
             usage = LocalTokenComponents(total: delta, uncachedInput: nil, cachedInput: nil, output: nil)
@@ -368,6 +370,14 @@ actor LocalSessionUsageScanner {
         }
         guard let suppliedTotal else { return nil }
         return LocalTokenComponents(total: suppliedTotal, uncachedInput: nil, cachedInput: nil, output: nil)
+    }
+
+    // Some historical records retain the total but write zero placeholders
+    // for every component. Keep their tokens without inventing a price split.
+    private static func hasOnlyTotal(_ raw: [String: Any]) -> Bool {
+        guard let total = integer(raw["total_tokens"]), total > 0 else { return false }
+        return ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
+            .allSatisfy { integer(raw[$0]) == 0 }
     }
 
     private static func tuple(_ raw: [String: Any]) -> UsageTuple? {

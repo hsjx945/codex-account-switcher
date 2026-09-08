@@ -6,6 +6,19 @@ struct LocalSessionUsageScannerTests {
     private let now = ISO8601DateFormatter().date(from: "2026-09-04T12:00:00Z")!
     private var utc: Calendar { var value = Calendar(identifier: .gregorian); value.timeZone = TimeZone(secondsFromGMT: 0)!; return value }
 
+    @Test func historicalZeroComponentPlaceholdersRetainTotalsWithoutInventingPrices() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let file = try fixture.file(day: "2026/09/03", name: "total-only.jsonl")
+        try fixture.append([meta("total-only"), turnContext("gpt-6-astra"),
+            legacyDetailed(at: "2026-09-03T01:00:00Z", cumulative: (100, 0, 0, 0, 0), last: (100, 0, 0, 0, 0)),
+            legacyDetailed(at: "2026-09-03T02:00:00Z", cumulative: (130, 100, 0, 30, 0), last: (30, 0, 0, 0, 0))], to: file)
+        let result = await LocalSessionUsageScanner(codexHome: fixture.root).refresh(now: now, calendar: utc)
+        #expect(result.todayTokens == 0)
+        #expect(result.last30DaysUsage?.total == 130)
+        #expect(result.last30DaysUsage?.uncachedInput == nil)
+        #expect(APITokenValuation.subtotal(result.last30DaysModels) == nil)
+    }
+
     @Test func thirtyDaysIncludesArchivedHistoryAndDeduplicatesAtCalendarBoundary() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let old = try fixture.file(day: "2026/08/06", name: "history.jsonl", archived: true)
