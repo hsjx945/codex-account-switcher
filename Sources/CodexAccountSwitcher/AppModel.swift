@@ -530,7 +530,7 @@ final class AppModel: ObservableObject {
     func switchAccount(to id: UUID) async {
         guard id != activeAccountID, !isMutating, !isAddingAccount else { return }
         guard let target = accounts.first(where: { $0.id == id }) else { return }
-        switchedAccount = nil
+        dismissSwitchResult()
         switchingAccount = target
         visibleError = nil
         isMutating = true
@@ -549,6 +549,7 @@ final class AppModel: ObservableObject {
             apply(try await store.loadRegistry())
             activeIdentityState = .confirmed
             switchedAccount = target
+            scheduleSwitchResultDismissal()
         } catch let error as OperationError {
             if error.stage == .reopenDesktop {
                 do {
@@ -590,7 +591,23 @@ final class AppModel: ObservableObject {
     }
 
 
-    func dismissSwitchResult() { switchedAccount = nil }
+    private var switchResultTask: Task<Void, Never>?
+
+    private func scheduleSwitchResultDismissal() {
+        switchResultTask?.cancel()
+        switchResultTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(1200)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.dismissSwitchResult()
+        }
+    }
+
+    func dismissSwitchResult() {
+        switchResultTask?.cancel()
+        switchResultTask = nil
+        switchedAccount = nil
+    }
 
     func addAccount() {
         guard !isMutating, !isAddingAccount else { return }

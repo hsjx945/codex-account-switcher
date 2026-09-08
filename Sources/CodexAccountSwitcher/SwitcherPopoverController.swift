@@ -29,6 +29,8 @@ final class SwitcherPopoverController: NSObject, NSPopoverDelegate {
         logo?.size = NSSize(width: 17.5, height: 17.5)
         logo?.isTemplate = true
         item.button?.image = logo
+        item.button?.imagePosition = .imageLeading
+        item.isVisible = true
         observation = model.objectWillChange.sink { [weak self] in
             Task { @MainActor in self?.update() }
         }

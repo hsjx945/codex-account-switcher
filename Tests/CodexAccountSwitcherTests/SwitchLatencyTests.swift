@@ -170,7 +170,13 @@ struct SwitchFeedbackTests {
         #expect(controller.popoverShouldClose(popover))
         controller.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
         #expect(model.switchedAccount?.id == profile.id)
-        model.dismissSwitchResult()
+        // Returning to usage must not depend on outside clicks or view lifetime.
+        let resultDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while model.switchedAccount != nil, ContinuousClock.now < resultDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(model.switchedAccount == nil)
+        #expect(model.activeAccountID == profile.id)
         _ = MenuBarPopover(model: model)
     }
 
