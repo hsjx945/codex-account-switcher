@@ -143,7 +143,7 @@ actor LocalSessionUsageScanner {
         }
     }
 
-    func start(interval: Duration = .seconds(1), onUpdate: @escaping @MainActor @Sendable (LocalTokenUsageSnapshot) -> Void) {
+    func start(interval: Duration = .seconds(10), onUpdate: @escaping @MainActor @Sendable (LocalTokenUsageSnapshot) -> Void) {
         guard monitorTask == nil else { return }
         monitorTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -297,15 +297,21 @@ actor LocalSessionUsageScanner {
                 return lhs.value.parsedSize > rhs.value.parsedSize
             }.first?.value
         }
-        var streams = canonical.mapValues(authoritativeEvents)
+        let originalStreams = canonical.mapValues(authoritativeEvents)
+        var streams = originalStreams
         for (id, state) in canonical {
             let prefixCount: Int
-            if let parentID = state.parentID, let parent = canonical[parentID] {
-                prefixCount = matchingLegacyPrefix(streams[id] ?? [], authoritativeEvents(parent))
+            if let parentID = state.parentID, canonical[parentID] != nil {
+                prefixCount = matchingLegacyPrefix(streams[id] ?? [], originalStreams[parentID] ?? [])
             } else if state.parentID == nil {
                 let child = streams[id] ?? []
+                // Only legacy prefixes can be replayed. Modern streams dedupe
+                // by response ID below, so do not compare them to every session.
+                guard child.count >= 2,
+                      case .legacy(.some) = child[0].kind,
+                      case .legacy(.some) = child[1].kind else { continue }
                 prefixCount = canonical.filter { $0.key != id && ($0.value.events.first?.timestamp ?? .distantFuture) < (state.events.first?.timestamp ?? .distantPast) }
-                    .map { matchingLegacyPrefix(child, authoritativeEvents($0.value)) }
+                    .map { matchingLegacyPrefix(child, originalStreams[$0.key] ?? []) }
                     .filter { $0 >= 2 }.max() ?? 0
             } else { prefixCount = 0 }
             if prefixCount > 0 { streams[id]?.removeFirst(prefixCount) }
