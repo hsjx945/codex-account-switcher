@@ -21,6 +21,15 @@ struct MenuBarPopover: View {
 
             if let account = model.switchingAccount {
                 SwitchingPage(model: model, account: account)
+            } else if let account = model.switchedAccount {
+                VStack(spacing: 16) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 42)).foregroundStyle(.green)
+                    Text(model.text("switched_reopen_title")).font(.headline)
+                    Text(account.preferredLabel).font(.subheadline)
+                }
+                .frame(maxWidth: .infinity, minHeight: 220)
+                .padding(24)
             } else if let account = pendingSwitch {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(model.format("switch_title", account.preferredLabel))
@@ -168,9 +177,7 @@ struct MenuBarPopover: View {
         VStack(spacing: 8) {
             ForEach(model.displayedAccounts) { account in
                 Button {
-                    if account.id == model.activeAccountID {
-                        NSApp.keyWindow?.close()
-                    } else {
+                    if account.id != model.activeAccountID {
                         pendingSwitch = account
                     }
                 } label: {

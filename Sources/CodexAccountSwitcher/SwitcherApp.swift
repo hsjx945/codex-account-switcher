@@ -3,50 +3,17 @@ import SwiftUI
 
 @main
 struct SwitcherApp: App {
-    @NSApplicationDelegateAdaptor(SwitcherAppDelegate.self) private var appDelegate
-    @StateObject private var model = AppModel.live()
+    @NSApplicationDelegateAdaptor(StatusBootstrap.self) private var statusBootstrap
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarPopover(model: model)
-        } label: {
-            HStack(spacing: 4) {
-                MenuBarLogo()
-
-                if model.settings.showsMenuBarPercentage {
-                    Text(model.menuBarQuota.title)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-            }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(menuBarAccessibilityLabel)
-                .help(menuBarAccessibilityLabel)
-                .task {
-                    await model.start()
-                    appDelegate.bindSwitchHandler { [weak model] profileID in
-                        await model?.handleNotificationSwitchRequest(profileID: profileID)
-                    }
-                    await model.startBackgroundUsageRefresh()
-                }
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
         .commands {
-            QuitApplicationCommands(title: model.text("quit"))
-        }
-    }
-
-    private var menuBarAccessibilityLabel: String {
-        var parts = ["Codex Account Switcher"]
-        if model.settings.showsMenuBarPercentage {
-            parts.append(model.activeShowsFiveHour ? model.text("five_hour") + " / " + model.text("weekly") : model.text("weekly"))
-            parts.append(model.menuBarQuota.title)
-            if model.menuBarQuota.isStale {
-                parts.append(model.text("usage_cached"))
+            CommandGroup(replacing: .appInfo) {
+                Button("Codex Account Switcher") { statusBootstrap.controller?.show() }
             }
         }
-        return parts.joined(separator: ", ")
     }
 }
 
@@ -88,5 +55,20 @@ private struct QuitApplicationCommands: Commands {
             }
             .keyboardShortcut("q", modifiers: .command)
         }
+    }
+}
+
+@MainActor
+final class StatusBootstrap: NSObject, NSApplicationDelegate {
+    var controller: SwitcherPopoverController?
+    let notificationDelegate = SwitcherAppDelegate()
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        notificationDelegate.applicationWillFinishLaunching(notification)
+        let model = AppModel.live()
+        controller = SwitcherPopoverController(model: model)
+        notificationDelegate.bindSwitchHandler { [weak model] id in
+            await model?.handleNotificationSwitchRequest(profileID: id)
+        }
+        Task { await model.startBackgroundUsageRefresh() }
     }
 }

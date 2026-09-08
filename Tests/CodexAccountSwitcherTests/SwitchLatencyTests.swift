@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import Testing
@@ -144,6 +145,9 @@ struct SwitchFeedbackTests {
         let service = FeedbackSwitch(store: store)
         let model = AppModel(store: store, codex: CodexClient(locator: .init(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))), switchService: service, operationGate: AccountOperationGate())
         await model.start()
+        let controller = SwitcherPopoverController(model: model)
+        let popover = NSPopover()
+        #expect(controller.popoverShouldClose(popover))
         let switching = Task { await model.switchAccount(to: profile.id) }
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         while await service.calls == 0, ContinuousClock.now < deadline {
@@ -151,6 +155,7 @@ struct SwitchFeedbackTests {
         }
         try #require(await service.calls == 1)
         #expect(model.switchingAccount?.id == profile.id)
+        #expect(!controller.popoverShouldClose(popover))
         #expect(model.isMutating)
         // Creating another popover must read the same in-flight model state.
         _ = MenuBarPopover(model: model)
@@ -161,6 +166,10 @@ struct SwitchFeedbackTests {
         #expect(model.switchingAccount == nil)
         #expect(!model.isMutating)
         #expect(model.activeAccountID == profile.id)
+        #expect(model.switchedAccount?.id == profile.id)
+        #expect(controller.popoverShouldClose(popover))
+        controller.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
+        #expect(model.switchedAccount == nil)
         _ = MenuBarPopover(model: model)
     }
 
