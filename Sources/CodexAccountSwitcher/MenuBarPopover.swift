@@ -356,30 +356,19 @@ struct TokenTotalRow: View {
             }
             .font(.system(size: 15, weight: .semibold))
             Divider()
-            HStack(spacing: 10) {
-                summaryTile(
-                    label: L10n.string("token_30_days_consumed", language: language),
-                    value: last30DaysUsage.map { TokenAmountFormatter.compact($0.total) } ?? "—",
-                    color: .blue
-                )
-                summaryTile(
-                    label: L10n.string(monthHasUnpricedUsage ? "api_30_days_partial" : "api_30_days_value", language: language),
-                    value: APITokenValuation.dollars(monthValue),
-                    color: .orange
-                )
+            HStack {
+                Text(L10n.string("token_30_days_consumed", language: language))
+                Spacer()
+                Text(last30DaysUsage.map { TokenAmountFormatter.compact($0.total) } ?? "—")
+                    .monospacedDigit()
             }
-            Text(L10n.string("token_30_days_scope", language: language))
-                .font(.system(size: 11))
-            if monthHasUnpricedUsage {
-                Text(L10n.string("token_30_days_unpriced", language: language)
-                     + " " + TokenAmountFormatter.compact(last30DaysModels.filter { APITokenValuation.estimate($0) == nil }.reduce(0) { $0 + $1.usage.total }))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.orange)
+            .font(.system(size: 15, weight: .semibold))
+            HStack {
+                Text(L10n.string(monthHasUnpricedUsage ? "api_30_days_partial" : "api_30_days_value", language: language))
+                Spacer()
+                Text(APITokenValuation.dollars(monthValue)).monospacedDigit()
             }
-            Text(L10n.string("api_estimate_note", language: language))
-                .font(.system(size: 11))
-                .help(L10n.string("api_estimate_detail", language: language))
-            Text(statusText).font(.system(size: 11))
+            .font(.system(size: 15, weight: .semibold))
         }
         .foregroundStyle(.primary)
         .padding(18)
