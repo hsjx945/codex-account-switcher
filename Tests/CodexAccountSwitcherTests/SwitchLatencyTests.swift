@@ -126,3 +126,85 @@ private struct LatencyFixture: Sendable {
     }
     func remove() { try? FileManager.default.removeItem(at: root) }
 }
+
+@MainActor
+struct SwitchFeedbackTests {
+    @Test func feedbackPersistsAcrossViewRecreationAndRejectsDuplicateClicks() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "switch-feedback-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
+        let original = AccountProfile(id: UUID(), displayName: "Original", email: nil, accountID: "original", createdAt: Date())
+        let originalHome = try await store.createProfileDirectory(id: original.id)
+        try Data("synthetic".utf8).write(to: originalHome.appending(path: "auth.json"))
+        try await store.addProfile(original)
+        let profile = AccountProfile(id: UUID(), displayName: "Synthetic target", email: nil, accountID: "fixture", createdAt: Date())
+        let home = try await store.createProfileDirectory(id: profile.id)
+        try Data("synthetic".utf8).write(to: home.appending(path: "auth.json"))
+        try await store.addProfile(profile)
+        let service = FeedbackSwitch(store: store)
+        let model = AppModel(store: store, codex: CodexClient(locator: .init(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))), switchService: service, operationGate: AccountOperationGate())
+        await model.start()
+        let switching = Task { await model.switchAccount(to: profile.id) }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while await service.calls == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(await service.calls == 1)
+        #expect(model.switchingAccount?.id == profile.id)
+        #expect(model.switchedAccount == nil)
+        #expect(model.isMutating)
+        // Creating another popover must read the same in-flight model state.
+        _ = MenuBarPopover(model: model)
+        await model.switchAccount(to: profile.id)
+        #expect(await service.calls == 1)
+        await service.finish()
+        await switching.value
+        #expect(model.switchingAccount == nil)
+        #expect(model.switchedAccount?.id == profile.id)
+        #expect(!model.isMutating)
+        _ = MenuBarPopover(model: model)
+        #expect(model.switchedAccount?.id == profile.id)
+        model.dismissSwitchResult()
+        #expect(model.switchedAccount == nil)
+    }
+
+    @Test func failedSwitchDoesNotShowSuccess() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "switch-failure-feedback-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AccountStore(baseURL: root, activeHomeURL: root.appending(path: "active"))
+        let original = AccountProfile(id: UUID(), displayName: "Original", email: nil, accountID: "original", createdAt: Date())
+        let originalHome = try await store.createProfileDirectory(id: original.id)
+        try Data("synthetic".utf8).write(to: originalHome.appending(path: "auth.json"))
+        try await store.addProfile(original)
+        let profile = AccountProfile(id: UUID(), displayName: "Synthetic", email: nil, accountID: nil, createdAt: Date())
+        let home = try await store.createProfileDirectory(id: profile.id)
+        try Data("synthetic".utf8).write(to: home.appending(path: "auth.json"))
+        try await store.addProfile(profile)
+        let model = AppModel(store: store, codex: CodexClient(locator: .init(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))), switchService: FailedFeedbackSwitch(), operationGate: AccountOperationGate())
+        await model.start()
+        await model.switchAccount(to: profile.id)
+        #expect(model.switchingAccount == nil)
+        #expect(model.switchedAccount == nil)
+        #expect(model.visibleError != nil)
+        #expect(!model.isMutating)
+    }
+}
+
+private actor FeedbackSwitch: SwitchServicing {
+    let store: AccountStore
+    var calls = 0
+    var continuation: CheckedContinuation<Void, Never>?
+    init(store: AccountStore) { self.store = store }
+    func recoverIfNeeded() async throws {}
+    func switchAccount(to id: UUID) async throws {
+        calls += 1
+        await withCheckedContinuation { continuation = $0 }
+        try await store.commitActiveAccountID(id)
+    }
+    func finish() { continuation?.resume(); continuation = nil }
+}
+
+private struct FailedFeedbackSwitch: SwitchServicing {
+    func recoverIfNeeded() async throws {}
+    func switchAccount(to id: UUID) async throws { throw CodexClientError.timeout }
+}

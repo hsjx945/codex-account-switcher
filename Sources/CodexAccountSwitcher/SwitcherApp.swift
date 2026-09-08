@@ -11,9 +11,17 @@ struct SwitcherApp: App {
             MenuBarPopover(model: model)
         } label: {
             HStack(spacing: 4) {
-                MenuBarLogo()
+                if model.switchingAccount != nil {
+                    ProgressView().controlSize(.mini)
+                    Text(model.text("switching_title"))
+                } else if model.switchedAccount != nil {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text(model.text("switched_reopen_title"))
+                } else {
+                    MenuBarLogo()
+                }
 
-                if model.settings.showsMenuBarPercentage {
+                if model.settings.showsMenuBarPercentage && model.switchingAccount == nil && model.switchedAccount == nil {
                     Text(model.menuBarQuota.title)
                         .monospacedDigit()
                         .lineLimit(1)
@@ -39,7 +47,9 @@ struct SwitcherApp: App {
 
     private var menuBarAccessibilityLabel: String {
         var parts = ["Codex Account Switcher"]
-        if model.settings.showsMenuBarPercentage {
+        if model.switchingAccount != nil { parts.append(model.text("switching_title")) }
+        if model.switchedAccount != nil { parts.append(model.text("switched_reopen_title")) }
+        if model.settings.showsMenuBarPercentage && model.switchingAccount == nil && model.switchedAccount == nil {
             parts.append(model.activeShowsFiveHour ? model.text("five_hour") + " / " + model.text("weekly") : model.text("weekly"))
             parts.append(model.menuBarQuota.title)
             if model.menuBarQuota.isStale {

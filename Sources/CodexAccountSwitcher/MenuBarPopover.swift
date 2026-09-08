@@ -6,7 +6,6 @@ struct MenuBarPopover: View {
     var initiallyExpandsLocalModels = false
     @Environment(\.colorScheme) private var colorScheme
     @State private var page: PopoverPage = .accounts
-    @State private var pendingSwitch: AccountProfile?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,33 +18,33 @@ struct MenuBarPopover: View {
                 )
             }
 
-            switch page {
-            case .accounts:
-                accountPage
-            case .manageAccounts:
-                ManageAccountsView(model: model) {
-                    page = .accounts
-                }
-            case .settings:
-                SettingsView(model: model) {
-                    page = .accounts
-                }
-            case let .switching(account):
+            if let account = model.switchingAccount {
                 SwitchingPage(model: model, account: account)
+            } else if let account = model.switchedAccount {
+                VStack(spacing: 16) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 42))
+                        .foregroundStyle(.green)
+                        .symbolEffect(.bounce, value: account.id)
+                    Text(model.text("switched_reopen_title"))
+                        .font(.headline)
+                    Text(account.preferredLabel).font(.subheadline)
+                    Button(model.text("ok"), action: model.dismissSwitchResult)
+                        .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, minHeight: 220)
+                .padding(24)
+                .accessibilityIdentifier("switch-completed")
+            } else {
+                switch page {
+                case .accounts:
+                    accountPage
+                case .manageAccounts:
+                    ManageAccountsView(model: model) { page = .accounts }
+                case .settings:
+                    SettingsView(model: model) { page = .accounts }
+                }
             }
-        }
-        .alert(
-            pendingSwitch.map { model.format("switch_title", $0.preferredLabel) } ?? model.text("confirm_switch"),
-            isPresented: Binding(get: { pendingSwitch != nil }, set: { if !$0 { pendingSwitch = nil } }),
-            presenting: pendingSwitch
-        ) { account in
-            Button(model.text("cancel"), role: .cancel) { pendingSwitch = nil }
-            Button(model.text("confirm_switch")) {
-                pendingSwitch = nil
-                switchAccount(account)
-            }
-        } message: { _ in
-            Text(model.text("switch_body"))
         }
         .frame(width: 420)
         .background(popoverBackground)
@@ -124,12 +123,12 @@ struct MenuBarPopover: View {
                 FooterAction(title: model.text("manage"), systemImage: "person.2") {
                     page = .manageAccounts
                 }
-                .disabled(model.isMutating)
+                .disabled(model.isMutating || model.isAddingAccount)
 
                 FooterAction(title: model.text("settings"), systemImage: "gearshape") {
                     page = .settings
                 }
-                .disabled(model.isMutating)
+                .disabled(model.isMutating || model.isAddingAccount)
 
                 FooterAction(
                     title: model.text("quit"),
@@ -163,7 +162,7 @@ struct MenuBarPopover: View {
                     if account.id == model.activeAccountID {
                         NSApp.keyWindow?.close()
                     } else {
-                        pendingSwitch = account
+                        switchAccount(account)
                     }
                 } label: {
                     AccountRow(
@@ -183,17 +182,13 @@ struct MenuBarPopover: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .disabled(model.isMutating)
+                .disabled(model.isMutating || model.isAddingAccount)
             }
         }
     }
 
     private func switchAccount(_ account: AccountProfile) {
-        page = .switching(account)
-        Task {
-            await model.switchAccount(to: account.id)
-            page = .accounts
-        }
+        Task { await model.switchAccount(to: account.id) }
     }
 
 }
@@ -384,7 +379,6 @@ private enum PopoverPage {
     case accounts
     case manageAccounts
     case settings
-    case switching(AccountProfile)
 }
 
 private struct IdentityStatusBanner: View {
@@ -425,7 +419,7 @@ private struct IdentityStatusBanner: View {
     }
 }
 
-private struct SwitchingPage: View {
+struct SwitchingPage: View {
     @ObservedObject var model: AppModel
     let account: AccountProfile
 
