@@ -21,6 +21,28 @@ struct MenuBarPopover: View {
 
             if let account = model.switchingAccount {
                 SwitchingPage(model: model, account: account)
+            } else if let account = pendingSwitch {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(model.format("switch_title", account.preferredLabel))
+                        .font(.headline)
+                    Text(model.text("switch_body"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button(model.text("cancel")) { pendingSwitch = nil }
+                            .keyboardShortcut(.cancelAction)
+                        Spacer()
+                        Button(model.text("confirm_switch")) {
+                            pendingSwitch = nil
+                            switchAccount(account)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .accessibilityIdentifier("confirm-account-switch")
+                    }
+                }
+                .padding(24)
             } else {
                 switch page {
                 case .accounts:
@@ -31,19 +53,6 @@ struct MenuBarPopover: View {
                     SettingsView(model: model) { page = .accounts }
                 }
             }
-        }
-        .alert(
-            pendingSwitch.map { model.format("switch_title", $0.preferredLabel) } ?? model.text("confirm_switch"),
-            isPresented: Binding(get: { pendingSwitch != nil }, set: { if !$0 { pendingSwitch = nil } }),
-            presenting: pendingSwitch
-        ) { account in
-            Button(model.text("cancel"), role: .cancel) { pendingSwitch = nil }
-            Button(model.text("confirm_switch")) {
-                pendingSwitch = nil
-                switchAccount(account)
-            }
-        } message: { _ in
-            Text(model.text("switch_body"))
         }
         .onChange(of: model.switchingAccount?.id) { _, _ in page = .accounts }
         .frame(width: 420)
