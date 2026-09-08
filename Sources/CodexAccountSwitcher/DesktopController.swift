@@ -1,11 +1,13 @@
 import AppKit
 import Foundation
+import ApplicationServices
 
 enum DesktopControllerError: LocalizedError, Sendable {
     case applicationNotFound
     case quitRequestFailed
     case forceQuitFailed
     case didNotExit
+    case readinessPermissionRequired
     case reopenFailed
 
     var errorDescription: String? {
@@ -18,6 +20,8 @@ enum DesktopControllerError: LocalizedError, Sendable {
             "Codex Desktop rejected the force-quit request."
         case .didNotExit:
             "Codex Desktop did not exit within 15 seconds after the force-quit request."
+        case .readinessPermissionRequired:
+            "账号身份已切换，但尚无法验证 Codex 界面就绪。请在系统设置 → 隐私与安全性 → 辅助功能中允许 Codex Account Switcher 读取界面。"
         case .reopenFailed:
             "Codex Desktop could not be reopened. Open it manually to continue."
         }
@@ -77,7 +81,8 @@ struct DesktopController: DesktopControlling {
         configuration.activates = true
         do {
             let application = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
-            try await waitForDesktopWindow {
+            guard AXIsProcessTrusted() else { throw DesktopControllerError.readinessPermissionRequired }
+            try await waitForDesktopWindow(timeout: .seconds(60)) {
                 guard !application.isTerminated, application.isFinishedLaunching else { return false }
                 let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
                 return windows.contains { window in
@@ -86,9 +91,11 @@ struct DesktopController: DesktopControlling {
                           let bounds = window[kCGWindowBounds as String] as? [String: Any],
                           let width = bounds["Width"] as? Double,
                           let height = bounds["Height"] as? Double else { return false }
-                    return width > 200 && height > 150
+                    return width > 200 && height > 150 && desktopHasUsableContent(pid: application.processIdentifier)
                 }
             }
+        } catch let error as DesktopControllerError {
+            throw error
         } catch {
             throw DesktopControllerError.reopenFailed
         }
@@ -137,4 +144,35 @@ func waitForDesktopWindow(
         try await Task.sleep(for: .milliseconds(100))
     }
     throw DesktopControllerError.reopenFailed
+}
+
+// A visible Electron shell is insufficient: require a rendered editor or
+// a recognized task action in its accessibility tree, not a splash window.
+func desktopHasUsableContent(pid: pid_t) -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 0.2)
+    var windows: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows) == .success,
+          let roots = windows as? [AXUIElement] else { return false }
+    var queue = roots.map { ($0, 0) }
+    var visited = 0
+    while let (element, depth) = queue.popLast(), visited < 400 {
+        visited += 1
+        var roleValue: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+        let role = roleValue as? String ?? ""
+        if role == kAXTextAreaRole as String { return true }
+        if role == kAXButtonRole as String {
+            var title: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &title)
+            if ["New task", "New chat", "新任务", "新建任务", "新对话"].contains(title as? String ?? "") { return true }
+        }
+        guard depth < 18 else { continue }
+        var children: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
+           let values = children as? [AXUIElement] {
+            queue.append(contentsOf: values.map { ($0, depth + 1) })
+        }
+    }
+    return false
 }

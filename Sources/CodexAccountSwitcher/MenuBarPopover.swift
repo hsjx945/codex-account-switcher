@@ -474,7 +474,7 @@ struct SwitchingPage: View {
                 .tint(.orange)
 
             VStack(spacing: 6) {
-                Text(model.text("switching_title"))
+                Text(model.text("switch_progress_" + model.switchProgress.rawValue))
                     .font(.system(size: 15, weight: .bold))
                 Text(account.preferredLabel)
                     .font(.system(size: 11.5))

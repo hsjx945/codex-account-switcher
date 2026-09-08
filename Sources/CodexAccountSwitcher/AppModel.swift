@@ -54,6 +54,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var localTokenSnapshot: LocalTokenUsageSnapshot?
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
+    @Published private(set) var switchProgress: SwitchProgress = .stoppingRequests
     @Published private(set) var switchingAccount: AccountProfile?
     @Published private(set) var switchedAccount: AccountProfile?
     @Published private(set) var isMutating = false
@@ -531,6 +532,7 @@ final class AppModel: ObservableObject {
         guard id != activeAccountID, !isMutating, !isAddingAccount else { return }
         guard let target = accounts.first(where: { $0.id == id }) else { return }
         dismissSwitchResult()
+        switchProgress = .stoppingRequests
         switchingAccount = target
         visibleError = nil
         isMutating = true
@@ -545,7 +547,9 @@ final class AppModel: ObservableObject {
             if interruptedRefresh != nil { refreshWeeklyUsage() }
         }
         do {
-            try await switchService.switchAccount(to: id)
+            try await switchService.switchAccount(to: id) { [weak self] phase in
+                await MainActor.run { self?.switchProgress = phase }
+            }
             apply(try await store.loadRegistry())
             activeIdentityState = .confirmed
             switchedAccount = target
@@ -562,8 +566,8 @@ final class AppModel: ObservableObject {
                 visibleError = OperationError(
                     stage: .reopenDesktop,
                     titleKey: "switched_reopen_title",
-                    messageKey: "switched_reopen_message",
-                    message: text("switched_reopen_message"),
+                    messageKey: nil,
+                    message: error.underlyingDescription ?? text("switched_reopen_message"),
                     underlyingDescription: error.underlyingDescription
                 )
             } else {

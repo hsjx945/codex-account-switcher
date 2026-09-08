@@ -10,9 +10,20 @@ protocol CodexIdentityReading: Sendable {
     func readIdentity(profileHome: URL) async throws -> AccountIdentity
 }
 
+enum SwitchProgress: String, Sendable {
+    case stoppingRequests, closingDesktop, savingCredential, activatingCredential, verifyingIdentity, committing, waitingForDesktop
+}
+
 protocol SwitchServicing: Sendable {
     func switchAccount(to targetID: UUID) async throws
     func recoverIfNeeded() async throws
+    func switchAccount(to targetID: UUID, progress: @escaping @Sendable (SwitchProgress) async -> Void) async throws
+}
+
+extension SwitchServicing {
+    func switchAccount(to targetID: UUID, progress: @escaping @Sendable (SwitchProgress) async -> Void) async throws {
+        try await switchAccount(to: targetID)
+    }
 }
 
 actor SwitchCoordinator: SwitchServicing {
@@ -37,8 +48,12 @@ actor SwitchCoordinator: SwitchServicing {
     }
 
     func switchAccount(to targetID: UUID) async throws {
+        try await switchAccount(to: targetID, progress: { _ in })
+    }
+
+    func switchAccount(to targetID: UUID, progress: @escaping @Sendable (SwitchProgress) async -> Void) async throws {
         try await operationGate.run { [self] in
-            try await performSwitch(to: targetID)
+            try await performSwitch(to: targetID, progress: progress)
         }
     }
 
@@ -49,7 +64,7 @@ actor SwitchCoordinator: SwitchServicing {
         }
     }
 
-    private func performSwitch(to targetID: UUID) async throws {
+    private func performSwitch(to targetID: UUID, progress: @escaping @Sendable (SwitchProgress) async -> Void) async throws {
         if let interrupted = try await recovery.loadJournal() {
             try await recover(interrupted)
         }
@@ -92,6 +107,7 @@ actor SwitchCoordinator: SwitchServicing {
         }
 
         do {
+            await progress(.closingDesktop)
             if desktopWasRunning { try await desktop.closeDesktop() }
             journal = try await recovery.update(journal, phase: .desktopClosed)
         } catch {
@@ -103,6 +119,7 @@ actor SwitchCoordinator: SwitchServicing {
         }
 
         do {
+            await progress(.savingCredential)
             try await store.saveCurrentCredential()
             journal = try await recovery.update(journal, phase: .originalSaved)
         } catch {
@@ -114,6 +131,7 @@ actor SwitchCoordinator: SwitchServicing {
         }
 
         do {
+            await progress(.activatingCredential)
             try await store.activateTargetCredential(id: targetID)
             journal = try await recovery.update(journal, phase: .targetActivated)
         } catch {
@@ -125,6 +143,7 @@ actor SwitchCoordinator: SwitchServicing {
         }
 
         do {
+            await progress(.verifyingIdentity)
             let identity = try await codex.readIdentity(profileHome: await store.activeCodexHome())
             guard identity.matches(target) else {
                 throw CodexClientError.identityUnavailable
@@ -139,6 +158,7 @@ actor SwitchCoordinator: SwitchServicing {
         }
 
         do {
+            await progress(.committing)
             try await store.commitActiveAccountID(targetID)
             journal = try await recovery.update(journal, phase: .committed)
         } catch {
@@ -150,6 +170,7 @@ actor SwitchCoordinator: SwitchServicing {
         }
 
         do {
+            await progress(.waitingForDesktop)
             if desktopWasRunning { try await desktop.reopenDesktop() }
         } catch {
             throw OperationError.stage(.reopenDesktop, error)

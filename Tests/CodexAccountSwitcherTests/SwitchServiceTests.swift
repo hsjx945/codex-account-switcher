@@ -6,7 +6,11 @@ import Testing
 struct SwitchCoordinatorTests {
     @Test func successfulSwitchCommitsVerifiedTargetAndClearsRecoveryState() async throws {
         let fixture = SwitchFixture()
-        try await fixture.coordinator.switchAccount(to: fixture.target.id)
+        let progress = ProgressRecorder()
+        try await fixture.coordinator.switchAccount(to: fixture.target.id) { phase in
+            await progress.record(phase)
+        }
+        #expect(await progress.values == [.closingDesktop, .savingCredential, .activatingCredential, .verifyingIdentity, .committing, .waitingForDesktop])
         #expect(await fixture.recorder.snapshot() == SwitchStage.allCases)
         #expect(await fixture.store.credentialOwner() == fixture.target.id)
         #expect(await fixture.store.activeAccountID() == fixture.target.id)
@@ -367,4 +371,9 @@ private final class SingleReadKeyProvider: RollbackKeyProviding, @unchecked Send
             return SymmetricKey(size: .bits256)
         }
     }
+}
+
+private actor ProgressRecorder {
+    var values: [SwitchProgress] = []
+    func record(_ value: SwitchProgress) { values.append(value) }
 }
