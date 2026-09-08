@@ -151,7 +151,6 @@ struct SwitchFeedbackTests {
         }
         try #require(await service.calls == 1)
         #expect(model.switchingAccount?.id == profile.id)
-        #expect(model.switchedAccount == nil)
         #expect(model.isMutating)
         // Creating another popover must read the same in-flight model state.
         _ = MenuBarPopover(model: model)
@@ -160,12 +159,9 @@ struct SwitchFeedbackTests {
         await service.finish()
         await switching.value
         #expect(model.switchingAccount == nil)
-        #expect(model.switchedAccount?.id == profile.id)
         #expect(!model.isMutating)
+        #expect(model.activeAccountID == profile.id)
         _ = MenuBarPopover(model: model)
-        #expect(model.switchedAccount?.id == profile.id)
-        model.dismissSwitchResult()
-        #expect(model.switchedAccount == nil)
     }
 
     @Test func failedSwitchDoesNotShowSuccess() async throws {
@@ -184,7 +180,6 @@ struct SwitchFeedbackTests {
         await model.start()
         await model.switchAccount(to: profile.id)
         #expect(model.switchingAccount == nil)
-        #expect(model.switchedAccount == nil)
         #expect(model.visibleError != nil)
         #expect(!model.isMutating)
     }

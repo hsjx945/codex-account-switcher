@@ -55,7 +55,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
     @Published private(set) var switchingAccount: AccountProfile?
-    @Published private(set) var switchedAccount: AccountProfile?
     @Published private(set) var isMutating = false
     @Published private(set) var isAddingAccount = false
     @Published private(set) var isSavingSettings = false
@@ -531,7 +530,6 @@ final class AppModel: ObservableObject {
         guard id != activeAccountID, !isMutating, !isAddingAccount else { return }
         guard let target = accounts.first(where: { $0.id == id }) else { return }
         switchingAccount = target
-        switchedAccount = nil
         visibleError = nil
         isMutating = true
         let interruptedRefresh = usageRefreshTask
@@ -548,7 +546,6 @@ final class AppModel: ObservableObject {
             try await switchService.switchAccount(to: id)
             apply(try await store.loadRegistry())
             activeIdentityState = .confirmed
-            switchedAccount = target
         } catch let error as OperationError {
             if error.stage == .reopenDesktop {
                 do {
@@ -589,7 +586,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func dismissSwitchResult() { switchedAccount = nil }
 
     func addAccount() {
         guard !isMutating, !isAddingAccount else { return }
