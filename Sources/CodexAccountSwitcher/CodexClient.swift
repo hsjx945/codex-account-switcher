@@ -228,6 +228,7 @@ private actor JSONRPCSession {
     private let decoder = JSONDecoder()
     private let encoder = JSONSerialization.self
     private var didTimeout = false
+    private var stopTask: Task<Void, Never>?
 
     init(executableURL: URL, profileHome: URL) throws {
         let process = Process()
@@ -303,14 +304,34 @@ private actor JSONRPCSession {
         return envelope.params ?? .object([:])
     }
 
-    func stop() {
+    func stop() async {
+        if let stopTask {
+            await stopTask.value
+            return
+        }
         output.readabilityHandler = nil
         errorOutput.readabilityHandler = nil
         input.close()
-        if process.isRunning {
-            process.terminate()
-        }
         pump.finish()
+        let cleanup = Task.detached(priority: .utility) { [process] in
+            guard process.isRunning else { return }
+            process.terminate()
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .milliseconds(250))
+            while process.isRunning, clock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            }
+            // Do not use waitUntilExit on Swift's cooperative executor: its
+            // Foundation run loop can miss exit delivery under concurrent load.
+            while process.isRunning {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        stopTask = cleanup
+        await cleanup.value
     }
 
     private func response(id: Int, timeout: Duration) async throws -> RPCEnvelope {
@@ -672,16 +693,27 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, TokenActivityReadi
         profileHome: URL,
         operation: (JSONRPCSession) async throws -> T
     ) async throws -> T {
+        try Task.checkCancellation()
         let executable = try locator.locate()
         let session = try JSONRPCSession(executableURL: executable, profileHome: profileHome)
-        do {
-            try await session.initialize(timeout: requestTimeout)
-            let result = try await operation(session)
-            await session.stop()
-            return result
-        } catch {
-            await session.stop()
-            throw error
+        return try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                try await session.initialize(timeout: requestTimeout)
+                try Task.checkCancellation()
+                let result = try await operation(session)
+                try Task.checkCancellation()
+                await session.stop()
+                return result
+            } catch {
+                await session.stop()
+                if Task.isCancelled { throw CancellationError() }
+                throw error
+            }
+        } onCancel: {
+            // Wake the pending pipe read immediately so a cancelled background
+            // query releases the account gate without waiting for its timeout.
+            Task { await session.stop() }
         }
     }
 

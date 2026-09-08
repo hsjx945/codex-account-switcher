@@ -281,7 +281,7 @@ final class AppModel: ObservableObject {
         if isBackgroundUsageRefreshEnabled {
             scheduleNextWeeklyUsageRefresh()
         }
-        guard !accounts.isEmpty, usageRefreshTask == nil else { return }
+        guard !accounts.isEmpty, !isMutating, usageRefreshTask == nil else { return }
         tokenActivityRefreshFinished = false
         tokenRefreshPending = Set(accounts.map(\.id))
         usageRefreshTask = Task { [weak self] in
@@ -383,6 +383,8 @@ final class AppModel: ObservableObject {
                 }
             }
             for await result in group {
+                // Cancellation is a foreground handoff, not a quota failure.
+                guard !Task.isCancelled else { continue }
                 switch result {
                 case let .success(id, usage, activity, planType, tokenError, fetchedAt, quotaError):
                     guard accounts.contains(where: { $0.id == id }) else { continue }
@@ -445,7 +447,7 @@ final class AppModel: ObservableObject {
     }
 
     private func performScheduledWarmupIfNeeded(now: Date = Date()) async {
-        guard settings.automaticWarmupEnabled else { return }
+        guard !Task.isCancelled, settings.automaticWarmupEnabled else { return }
         let calendar = Calendar.current
         guard let scheduled = calendar.date(
             bySettingHour: settings.warmupHour,
@@ -464,6 +466,7 @@ final class AppModel: ObservableObject {
         }
 
         for account in displayedAccounts {
+            guard !Task.isCancelled else { return }
             guard history.lastAttemptDayByProfile[account.id.uuidString] != day else { continue }
             guard case let .loaded(currentUsage) = usageStates[account.id] else { continue }
             guard currentUsage.allowsWarmup(at: now) else { continue }
@@ -517,15 +520,23 @@ final class AppModel: ObservableObject {
                 )
                 warmupStatuses[account.id] = record
                 try? await store.recordWarmupResult(profileID: account.id, record: record)
-                showError(error)
+                if !Task.isCancelled { showError(error) }
             }
         }
     }
 
     func switchAccount(to id: UUID) async {
-        guard id != activeAccountID, !isMutating else { return }
+        guard id != activeAccountID, !isMutating, !isAddingAccount else { return }
         isMutating = true
-        defer { isMutating = false }
+        let interruptedRefresh = usageRefreshTask
+        interruptedRefresh?.cancel()
+        // Keep the gate until the cancelled request (including any warmup)
+        // has stopped. No credential writes may overlap the old process.
+        await interruptedRefresh?.value
+        defer {
+            isMutating = false
+            if interruptedRefresh != nil { refreshWeeklyUsage() }
+        }
         do {
             try await switchService.switchAccount(to: id)
             apply(try await store.loadRegistry())
