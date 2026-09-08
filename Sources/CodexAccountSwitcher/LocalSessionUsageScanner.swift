@@ -22,6 +22,8 @@ struct LocalTokenUsageSnapshot: Equatable, Sendable {
     let latestEventAt: Date?
     let scannedAt: Date
     let state: LocalTokenScanState
+    var last30DaysUsage: LocalTokenComponents? = nil
+    var last30DaysModels: [LocalModelTokenUsage] = []
     var todayTokens: Int? { usage?.total }
 }
 
@@ -98,6 +100,16 @@ actor LocalSessionUsageScanner {
         }
     }
 
+    private let fractionalDateParser: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private let plainDateParser: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
     private let roots: [URL]
     private let fileManager: FileManager
     private var files: [URL: FileState] = [:]
@@ -113,12 +125,15 @@ actor LocalSessionUsageScanner {
 
     func refresh(now: Date = Date(), calendar: Calendar = BeijingDateTimeFormatter.calendar) -> LocalTokenUsageSnapshot {
         do {
-            let candidates = try candidateFiles(modifiedAfter: calendar.startOfDay(for: now))
+            let dayStart = calendar.startOfDay(for: now)
+            let periodStart = calendar.date(byAdding: .day, value: -29, to: dayStart)!
+            let candidates = try candidateFiles(modifiedAfter: periodStart)
             for url in candidates { try ingest(url) }
             files = files.filter { candidates.contains($0.key) }
             if let error = files.values.compactMap(\.parseError).first { throw LocalSessionUsageError.unreadableFile(error) }
-            let result = try summarize(now: now, calendar: calendar)
-            let snapshot = LocalTokenUsageSnapshot(usage: result.usage, models: result.models, latestEventAt: result.latest, scannedAt: now, state: monitorTask == nil ? .idle : .monitoring)
+            let result = try summarize(now: now, start: dayStart)
+            let month = try summarize(now: now, start: periodStart)
+            let snapshot = LocalTokenUsageSnapshot(usage: result.usage, models: result.models, latestEventAt: result.latest, scannedAt: now, state: monitorTask == nil ? .idle : .monitoring, last30DaysUsage: month.usage, last30DaysModels: month.models)
             lastSnapshot = snapshot
             return snapshot
         } catch {
@@ -183,16 +198,24 @@ actor LocalSessionUsageScanner {
         catch { throw LocalSessionUsageError.unreadableFile(url.lastPathComponent) }
         defer { try? handle.close() }
         do {
-            while let appended = try handle.read(upToCount: 1_048_576), !appended.isEmpty {
-                state.offset += appended.count
-                state.pending.append(appended)
-                var lineStart = state.pending.startIndex
-                while let newline = state.pending[lineStart...].firstIndex(of: 0x0A) {
-                    parseLine(Data(state.pending[lineStart..<newline]), into: &state)
-                    state.parsedSize += state.pending.distance(from: lineStart, to: newline) + 1
-                    lineStart = state.pending.index(after: newline)
+            while true {
+                // Bound Foundation's temporary buffers during the historical scan.
+                let reachedEnd = try autoreleasepool {
+                    guard let appended = try handle.read(upToCount: 1_048_576), !appended.isEmpty else { return true }
+                    state.offset += appended.count
+                    state.pending.append(appended)
+                    var lineStart = state.pending.startIndex
+                    while let newline = state.pending[lineStart...].firstIndex(of: 0x0A) {
+                        autoreleasepool {
+                            parseLine(Data(state.pending[lineStart..<newline]), into: &state)
+                        }
+                        state.parsedSize += state.pending.distance(from: lineStart, to: newline) + 1
+                        lineStart = state.pending.index(after: newline)
+                    }
+                    if lineStart > state.pending.startIndex { state.pending.removeSubrange(state.pending.startIndex..<lineStart) }
+                    return false
                 }
-                if lineStart > state.pending.startIndex { state.pending.removeSubrange(state.pending.startIndex..<lineStart) }
+                if reachedEnd { break }
             }
         } catch { throw LocalSessionUsageError.unreadableFile(url.lastPathComponent) }
         files[url] = state
@@ -219,7 +242,7 @@ actor LocalSessionUsageScanner {
             if let model = payload["model"] as? String, !model.isEmpty { state.currentModel = model }
             return
         }
-        guard let timestampText = object["timestamp"] as? String, let timestamp = Self.parseDate(timestampText) else {
+        guard let timestampText = object["timestamp"] as? String, let timestamp = parseDate(timestampText) else {
             state.parseError = "token event has no valid timestamp"; return
         }
         if type == "token_usage_record" {
@@ -263,8 +286,7 @@ actor LocalSessionUsageScanner {
         state.events.append(UsageEvent(timestamp: timestamp, usage: usage, model: state.currentModel, kind: .legacy(replayKey)))
     }
 
-    private func summarize(now: Date, calendar: Calendar) throws -> (usage: LocalTokenComponents, models: [LocalModelTokenUsage], latest: Date?) {
-        let dayStart = calendar.startOfDay(for: now)
+    private func summarize(now: Date, start: Date) throws -> (usage: LocalTokenComponents, models: [LocalModelTokenUsage], latest: Date?) {
         let canonical = Dictionary(grouping: files, by: { $0.value.sessionID ?? $0.key.path }).compactMapValues { copies in
             copies.sorted { lhs, rhs in
                 if lhs.value.events.count != rhs.value.events.count { return lhs.value.events.count > rhs.value.events.count }
@@ -290,7 +312,7 @@ actor LocalSessionUsageScanner {
         var aggregate = Aggregate(), byModel: [String?: Aggregate] = [:], latest: Date?
         var responses: [String: LocalTokenComponents] = [:]
         for events in streams.values {
-            for event in events where event.timestamp >= dayStart && event.timestamp <= now {
+            for event in events where event.timestamp >= start && event.timestamp <= now {
                 if case let .response(id) = event.kind {
                     if let previous = responses[id] {
                         guard previous == event.usage else { throw LocalSessionUsageError.unreadableFile("conflicting response_id usage") }
@@ -361,10 +383,7 @@ actor LocalSessionUsageScanner {
         guard decimal >= 0, decimal <= Decimal(Int.max), Decimal(integer) == decimal else { return nil }
         return integer
     }
-    private static func parseDate(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter(); fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: value) { return date }
-        let plain = ISO8601DateFormatter(); plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: value)
+    private func parseDate(_ value: String) -> Date? {
+        fractionalDateParser.date(from: value) ?? plainDateParser.date(from: value)
     }
 }

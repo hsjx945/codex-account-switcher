@@ -6,6 +6,32 @@ struct LocalSessionUsageScannerTests {
     private let now = ISO8601DateFormatter().date(from: "2026-09-04T12:00:00Z")!
     private var utc: Calendar { var value = Calendar(identifier: .gregorian); value.timeZone = TimeZone(secondsFromGMT: 0)!; return value }
 
+    @Test func thirtyDaysIncludesArchivedHistoryAndDeduplicatesAtCalendarBoundary() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let old = try fixture.file(day: "2026/08/06", name: "history.jsonl", archived: true)
+        let boundary = modernDetailed(at: "2026-08-06T00:00:00Z", response: "boundary", input: 1_000_000, cached: 500_000, output: 1_000_000, reasoning: 100, model: "gpt-6-astra")
+        try fixture.append([meta("history"),
+            modern(at: "2026-08-05T23:59:59Z", response: "excluded", tokens: 99), boundary], to: old)
+        // Old files must be scanned even when they have not changed today.
+        try FileManager.default.setAttributes([.modificationDate: ISO8601DateFormatter().date(from: "2026-08-06T01:00:00Z")!], ofItemAtPath: old.path)
+        let current = try fixture.file(day: "2026/09/04", name: "current.jsonl")
+        try fixture.append([meta("current"), boundary,
+            modernDetailed(at: "2026-09-04T01:00:00Z", response: "today", input: 1_000_000, cached: 500_000, output: 1_000_000, reasoning: 100, model: "gpt-6-astra"),
+            modern(at: "2026-09-05T00:00:00Z", response: "future", tokens: 99)], to: current)
+        let scanner = LocalSessionUsageScanner(codexHome: fixture.root)
+        let result = await scanner.refresh(now: now, calendar: utc)
+        #expect(result.todayTokens == 2_000_000)
+        #expect(result.last30DaysUsage?.total == 4_000_000)
+        #expect(APITokenValuation.subtotal(result.last30DaysModels) == 111)
+        #expect(await scanner.refresh(now: now, calendar: utc).last30DaysUsage == result.last30DaysUsage)
+        let tomorrow = calendarDayAfterNow
+        let rolled = await scanner.refresh(now: tomorrow, calendar: utc)
+        #expect(rolled.last30DaysUsage?.total == 2_000_099)
+        #expect(rolled.todayTokens == 99)
+    }
+
+    private var calendarDayAfterNow: Date { utc.date(byAdding: .day, value: 1, to: now)! }
+
     @Test func incrementallyReadsAppendsWithoutRestartAndDoesNotRecountRefreshes() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

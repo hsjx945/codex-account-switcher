@@ -127,6 +127,8 @@ struct MenuBarPopover: View {
                     title: model.text("token_today_consumed"),
                     usage: model.localTokenSnapshot?.usage,
                     models: model.localTokenSnapshot?.models ?? [],
+                    last30DaysUsage: model.localTokenSnapshot?.last30DaysUsage,
+                    last30DaysModels: model.localTokenSnapshot?.last30DaysModels ?? [],
                     language: model.settings.language,
                     statusText: localTokenStatusText,
                     detailText: model.text("token_total_local_hint"),
@@ -213,6 +215,8 @@ struct TokenTotalRow: View {
     let title: String
     let usage: LocalTokenComponents?
     let models: [LocalModelTokenUsage]
+    let last30DaysUsage: LocalTokenComponents?
+    let last30DaysModels: [LocalModelTokenUsage]
     let language: AppLanguage
     let statusText: String
     let detailText: String
@@ -225,6 +229,8 @@ struct TokenTotalRow: View {
         title: String,
         usage: LocalTokenComponents?,
         models: [LocalModelTokenUsage],
+        last30DaysUsage: LocalTokenComponents? = nil,
+        last30DaysModels: [LocalModelTokenUsage] = [],
         language: AppLanguage,
         statusText: String,
         detailText: String,
@@ -234,6 +240,8 @@ struct TokenTotalRow: View {
         self.title = title
         self.usage = usage
         self.models = models
+        self.last30DaysUsage = last30DaysUsage
+        self.last30DaysModels = last30DaysModels
         self.language = language
         self.statusText = statusText
         self.detailText = detailText
@@ -306,6 +314,16 @@ struct TokenTotalRow: View {
         models.contains { APITokenValuation.estimate($0) == nil }
     }
 
+    private var monthHasUnpricedUsage: Bool {
+        last30DaysModels.contains { APITokenValuation.estimate($0) == nil }
+    }
+
+    private var monthValue: Decimal? {
+        guard let last30DaysUsage else { return nil }
+        if last30DaysUsage.total == 0 { return 0 }
+        return APITokenValuation.subtotal(last30DaysModels)
+    }
+
     var details: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -337,6 +355,27 @@ struct TokenTotalRow: View {
                 Text(APITokenValuation.dollars(APITokenValuation.subtotal(models))).monospacedDigit()
             }
             .font(.system(size: 15, weight: .semibold))
+            Divider()
+            HStack(spacing: 10) {
+                summaryTile(
+                    label: L10n.string("token_30_days_consumed", language: language),
+                    value: last30DaysUsage.map { TokenAmountFormatter.compact($0.total) } ?? "—",
+                    color: .blue
+                )
+                summaryTile(
+                    label: L10n.string(monthHasUnpricedUsage ? "api_30_days_partial" : "api_30_days_value", language: language),
+                    value: APITokenValuation.dollars(monthValue),
+                    color: .orange
+                )
+            }
+            Text(L10n.string("token_30_days_scope", language: language))
+                .font(.system(size: 11))
+            if monthHasUnpricedUsage {
+                Text(L10n.string("token_30_days_unpriced", language: language)
+                     + " " + TokenAmountFormatter.compact(last30DaysModels.filter { APITokenValuation.estimate($0) == nil }.reduce(0) { $0 + $1.usage.total }))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+            }
             Text(L10n.string("api_estimate_note", language: language))
                 .font(.system(size: 11))
                 .help(L10n.string("api_estimate_detail", language: language))
