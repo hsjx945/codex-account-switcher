@@ -199,6 +199,27 @@ struct SwitchFeedbackTests {
         #expect(model.visibleError != nil)
         #expect(!model.isMutating)
     }
+    @Test func reopenErrorShowsReadableMessage() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "switch-failure-feedback-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AccountStore(baseURL: root, activeHomeURL: root.appending(path: "active"))
+        let original = AccountProfile(id: UUID(), displayName: "Original", email: nil, accountID: "original", createdAt: Date())
+        let originalHome = try await store.createProfileDirectory(id: original.id)
+        try Data("synthetic".utf8).write(to: originalHome.appending(path: "auth.json"))
+        try await store.addProfile(original)
+        let profile = AccountProfile(id: UUID(), displayName: "Synthetic", email: nil, accountID: nil, createdAt: Date())
+        let home = try await store.createProfileDirectory(id: profile.id)
+        try Data("synthetic".utf8).write(to: home.appending(path: "auth.json"))
+        try await store.addProfile(profile)
+        let model = AppModel(store: store, codex: CodexClient(locator: .init(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))), switchService: FailedReopenSwitch(), operationGate: AccountOperationGate())
+        await model.start()
+        await model.switchAccount(to: profile.id)
+        #expect(model.switchingAccount == nil)
+        #expect(model.visibleError?.titleKey == "switched_reopen_title")
+        #expect(model.visibleError?.message == DesktopControllerError.reopenFailed.localizedDescription)
+        #expect(model.visibleError?.message != "reopenFailed")
+        #expect(!model.isMutating)
+    }
 }
 
 private actor FeedbackSwitch: SwitchServicing {
@@ -234,5 +255,12 @@ struct DesktopReadinessTests {
             try await waitForDesktopWindow(timeout: .milliseconds(100)) { false }
             Issue.record("Missing desktop window must not succeed")
         } catch {}
+    }
+}
+
+private struct FailedReopenSwitch: SwitchServicing {
+    func recoverIfNeeded() async throws {}
+    func switchAccount(to id: UUID) async throws {
+        throw OperationError.stage(.reopenDesktop, DesktopControllerError.reopenFailed)
     }
 }

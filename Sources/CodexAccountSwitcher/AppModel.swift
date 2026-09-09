@@ -567,7 +567,7 @@ final class AppModel: ObservableObject {
                     stage: .reopenDesktop,
                     titleKey: "switched_reopen_title",
                     messageKey: nil,
-                    message: error.underlyingDescription ?? text("switched_reopen_message"),
+                    message: error.message,
                     underlyingDescription: error.underlyingDescription
                 )
             } else {
