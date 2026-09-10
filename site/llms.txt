@@ -8,7 +8,7 @@ The app is designed for Apple Silicon Macs running macOS 14 or later. Users add 
 
 - [Product homepage](https://liuzhao1225.github.io/codex-account-switcher/): Product overview, screenshots, requirements, frequently asked questions, and download link.
 - [Official project facts](https://liuzhao1225.github.io/codex-account-switcher/about/): Canonical product name, creator, release, platform, license, technical scope, and primary sources.
-- [Latest GitHub release](https://github.com/liuzhao1225/codex-account-switcher/releases/latest): Signed and Apple-notarized macOS download.
+- [Latest GitHub release](https://github.com/liuzhao1225/codex-account-switcher/releases/latest): macOS download; check each Release for signing and notarization status.
 
 ## Guides
 
@@ -33,3 +33,15 @@ The app is designed for Apple Silicon Macs running macOS 14 or later. Users add 
 - [中文首页](https://liuzhao1225.github.io/codex-account-switcher/zh-CN/): 中文产品介绍。
 - [中文多账号切换指南](https://liuzhao1225.github.io/codex-account-switcher/zh-CN/guides/codex-multiple-accounts/): 中文分步使用说明。
 - [OpenAI account switching documentation](https://help.openai.com/en/articles/20001068-use-multiple-accounts-with-account-switching): Official context for ChatGPT account switching and the current Codex desktop limitation.
+
+## Version and data scope / 版本与数据范围
+
+Source version: 0.2.2. Local Token totals cover all readable Codex sessions on this device, for today and the last 30 days; they are not per-account billing. New rollback keys use user-private local files. Release notes identify the signing status of each artifact.
+
+源码版本：0.2.2。本机 Token 是设备级今日及近 30 天统计，不是单账号账单。新回滚密钥使用仅当前用户可读的本地文件；每个 Release 单独说明安装包签名状态。
+
+## Discovery / 检索
+
+This file is an optional source map. Crawlable bilingual HTML, canonical URLs, language links and a sitemap support discovery but do not guarantee search indexing, AI citation or traffic growth.
+
+此文件是补充资料索引。可读取的双语 HTML、规范网址、语言互链和 sitemap 有助于发现项目，但不保证收录、AI 引用或流量增长。

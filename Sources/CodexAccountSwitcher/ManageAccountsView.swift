@@ -20,7 +20,10 @@ struct ManageAccountsView: View {
             case .accounts:
                 accountList
             case .add:
-                addAccountPage
+                AddAccountWaitingPage(model: model) {
+                    model.cancelAddingAccount()
+                    page = .accounts
+                }
             case let .edit(account):
                 NicknameEditor(model: model, account: account) {
                     page = .accounts
@@ -94,8 +97,8 @@ struct ManageAccountsView: View {
                     model.addAccount()
                 } label: {
                     Label(model.text("add_account"), systemImage: "plus")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 38)
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -103,37 +106,12 @@ struct ManageAccountsView: View {
                 .disabled(model.isMutating || model.isAddingAccount)
 
                 Text(model.text("sign_in_hint"))
-                    .font(.system(size: 10.5))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
             }
             .padding(9)
         }
-    }
-
-    private var addAccountPage: some View {
-        VStack(spacing: 17) {
-            ProgressView()
-                .controlSize(.large)
-                .tint(.orange)
-
-            VStack(spacing: 6) {
-                Text(model.text("waiting_for_sign_in"))
-                    .font(.system(size: 15, weight: .bold))
-                Text(model.text("sign_in_pending_hint"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            Button(model.text("cancel_add_account")) {
-                model.cancelAddingAccount()
-                page = .accounts
-            }
-            .buttonStyle(.bordered)
-        }
-        .frame(maxWidth: .infinity, minHeight: 190)
-        .padding(24)
     }
 
     private func removePage(_ account: AccountProfile) -> some View {
@@ -148,7 +126,7 @@ struct ManageAccountsView: View {
                 .font(.system(size: 18, weight: .bold))
 
             Text(model.text("remove_body"))
-                .font(.system(size: 11.5))
+                .font(.system(size: 15))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -173,6 +151,58 @@ struct ManageAccountsView: View {
     }
 }
 
+struct AddAccountWaitingPage: View {
+    static let cancelButtonAccessibilityIdentifier = "cancel-add-account"
+
+    @ObservedObject var model: AppModel
+    let onCancel: () -> Void
+    var showsHeader = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if showsHeader {
+                PopoverHeader(
+                    title: model.text("add_account"),
+                    backTitle: model.text("back"),
+                    onBack: requestCancellation
+                )
+                Divider()
+            }
+
+            waitingContent
+        }
+    }
+
+    private var waitingContent: some View {
+        VStack(spacing: 17) {
+            ProgressView()
+                .controlSize(.large)
+                .tint(.orange)
+
+            VStack(spacing: 6) {
+                Text(model.text("waiting_for_sign_in"))
+                    .font(.system(size: 15, weight: .bold))
+                Text(model.text("sign_in_pending_hint"))
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button(model.text("cancel_add_account"), action: requestCancellation)
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier(Self.cancelButtonAccessibilityIdentifier)
+        }
+        .frame(maxWidth: .infinity, minHeight: 190)
+        .padding(24)
+    }
+
+    /// The button and the header back action share this operation so a
+    /// recreated popover cannot strand the in-flight browser login.
+    func requestCancellation() {
+        onCancel()
+    }
+}
+
 private enum ManageAccountsPage {
     case accounts
     case add
@@ -192,14 +222,14 @@ private struct ManagedAccountRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(account.preferredLabel)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 if account.nickname?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
                    let email = account.email {
                     Text(email)
-                        .font(.system(size: 11))
+                        .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -210,7 +240,7 @@ private struct ManagedAccountRow: View {
 
             if account.id == model.activeAccountID {
                 Text(model.text("active"))
-                    .font(.system(size: 9.5, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color(red: 0.05, green: 0.34, blue: 0.16))
                     .padding(.horizontal, 7)
                     .frame(height: 20)
@@ -222,7 +252,7 @@ private struct ManagedAccountRow: View {
 
             Button(action: onEdit) {
                 Label(model.text("set_remark"), systemImage: "pencil")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .padding(.horizontal, 7)
                     .frame(height: 28)
                     .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
@@ -271,7 +301,7 @@ private struct NicknameEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             if let email = account.email {
                 Text(email)
-                    .font(.system(size: 11))
+                    .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -280,13 +310,13 @@ private struct NicknameEditor: View {
             }
 
             Text(model.text("nickname"))
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
 
             TextField(model.text("nickname"), text: $nickname)
                 .textFieldStyle(.roundedBorder)
 
             Text(model.text("nickname_hint"))
-                .font(.system(size: 10.5))
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
@@ -322,7 +352,7 @@ struct PopoverHeader: View {
         HStack {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
@@ -333,7 +363,7 @@ struct PopoverHeader: View {
             Spacer()
 
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
 

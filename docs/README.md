@@ -1,51 +1,16 @@
-# Documentation
+# Documentation / 项目文档
 
-- [Official project identity and primary sources](project-identity.md)
+Current source version: **0.2.2**. Start with [English README](../README.md) or [中文 README](../README.zh-CN.md).
 
-This directory defines the MVP for Codex Account Switcher.
+## Current references / 当前资料
 
-## Documents
+- [System design](system-design.md): current storage, recovery and UI responsibilities.
+- [Testing](testing.md): executable checks and real-environment boundaries.
+- [Search and AI discovery / 搜索与 AI 检索](discoverability.md): bilingual SEO/GEO implementation and measurement limits.
+- [Release notes / 发布说明](../.github/release-notes.md): current version changes; the workflow appends artifact signing status.
 
-| Document | Purpose |
-| --- | --- |
-| [Product positioning and messaging](positioning-and-messaging.md) | Shared audience, promise, proof, SEO terms, and claim boundaries |
-| [Product decisions](product-decisions.md) | Binding product and architecture decisions |
-| [Product requirements](product-requirements.md) | User-visible behavior and acceptance criteria |
-| [System design](system-design.md) | Components, storage, flows, interfaces, and failure behavior |
-| [Implementation plan](implementation-plan.md) | Concrete milestones and suggested source layout |
-| [Testing](testing.md) | Small, failure-oriented MVP test plan |
-| [Milestone 2 report](testing/2026-09-04-milestone-2-report.md) | Token, warmup, package, and runtime evidence |
-| [Milestone 3 report](testing/2026-09-04-milestone-3-report.md) | Reset reminder, safe action, package, and runtime evidence |
-| [Milestone 4 report](testing/2026-09-04-milestone-4-report.md) | Plan badges, Beijing time, aligned bars, and window-visibility evidence |
-| [Milestone 5 report](testing/2026-09-04-milestone-5-report.md) | Roomier account cards, neutral active state, and Pro label evidence |
-| [Milestone 6 report](testing/2026-09-04-milestone-6-report.md) | Larger icon-led cards, active-state alignment, and truthful current-day token evidence |
-| [Token, warmup, and Claude research](research/2026-09-04-usage-warmup-claude.md) | Pinned sources, data semantics, and provider recommendation |
-| [Reset notifications and safe switching research](research/2026-09-04-five-hour-reset-notifications.md) | Native notification, dedupe, task-state, and Claude-provider findings |
+## Historical evidence / 历史证据
 
-## Product definition
+The dated files under `plans/`, `decisions/`, `research/` and `testing/` record earlier decisions and observations. They are retained as evidence, not current implementation instructions. Earlier MVP documents (`product-decisions.md`, `product-requirements.md`, `implementation-plan.md`, and `positioning-and-messaging.md`) and the original handoff describe earlier scopes. Where they differ, current code, current README and the current references above describe this release.
 
-Codex Account Switcher is a simple local menu-bar app for ordinary Mac users. The public workflow is: add accounts through browser sign-in once, choose from the menu bar, and let the app complete the confirmed Codex Desktop handoff. It requires no Terminal commands or config-file editing. Internally, the app manages a small set of authentication snapshots and activates the selected snapshot for Codex.
-
-The intended user flow is:
-
-```text
-Open menu
-→ inspect weekly Usage and optional 5-hour Usage
-→ select account
-→ confirm normal switch consequences
-→ switch
-```
-
-The implementation flow is:
-
-```text
-Preflight
-→ close Codex Desktop
-→ save the current account's latest credentials
-→ atomically activate the target credentials
-→ verify the target identity through Codex
-→ write activeAccountID
-→ reopen Codex Desktop
-```
-
-The sequence is deliberately linear. Every step either succeeds or returns an error. Verification and registry-commit failures after activation restore the validated original profile credential; the implementation does not add a general recovery state machine around the switch.
+保留的日期化计划、决策、研究和验收记录属于历史证据，不代表当前实现。早期 MVP 文档与原始交接说明若与本版本不同，以当前源码、README 和上方当前资料为准。旧 HTML 原型已删除，界面验收使用实际 SwiftUI 组件。

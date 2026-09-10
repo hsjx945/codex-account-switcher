@@ -49,14 +49,14 @@ struct AccountRow: View {
     private var titleRow: some View {
         HStack(spacing: 7) {
             Text(account.preferredLabel)
-                .font(.system(size: 15, weight: .bold))
+                .font(.system(size: 17, weight: .bold))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             if usageState.isQuotaExhausted(showsFiveHour: shouldShowFiveHourUsage) {
                 let message = "\(L10n.string("usage", language: language)) 0%"
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(.orange)
                     .help(message)
                     .accessibilityLabel(message)
@@ -91,11 +91,11 @@ struct AccountRow: View {
         switch usageState {
         case .idle:
             Text("\(L10n.string("usage", language: language)) —")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.primary)
         case let .unavailable(message):
             Text(L10n.string("usage_unavailable", language: language))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.primary)
                 .help(message)
         case let .loaded(usage), let .stale(usage, _):
@@ -125,9 +125,9 @@ struct AccountRow: View {
     ) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.primary)
-                .frame(width: 48, alignment: .leading)
+                .frame(width: 56, alignment: .leading)
                 .lineLimit(1)
 
             UsageBar(remainingPercent: remainingPercent)
@@ -136,16 +136,16 @@ struct AccountRow: View {
                 .accessibilityValue("\(remainingPercent)\(L10n.string("left", language: language))")
 
             Text("\(remainingPercent)%")
-                .font(.system(size: 14, weight: .bold).monospacedDigit())
+                .font(.system(size: 16, weight: .bold).monospacedDigit())
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(minWidth: 44, alignment: .trailing)
 
             Text(resetsAt.map(resetText(for:)) ?? L10n.string("reset_unknown", language: language))
-                .font(.system(size: 10.5).monospacedDigit())
+                .font(.system(size: 13).monospacedDigit())
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .frame(width: 92, alignment: .trailing)
+                .frame(width: 120, alignment: .trailing)
                 .help("\(L10n.string("resets", language: language)) \(resetsAt.map(resetText(for:)) ?? "—") (UTC+8)")
         }
     }
@@ -158,7 +158,7 @@ struct AccountRow: View {
         case .failed: "warmup_failed"
         }
         return Text("\(L10n.string(key, language: language)) · \(BeijingDateTimeFormatter.string(from: record.attemptedAt, language: language))")
-            .font(.system(size: 10.5))
+            .font(.system(size: 13))
             .foregroundStyle(.primary)
             .lineLimit(1)
     }
@@ -238,15 +238,7 @@ struct AccountRow: View {
         BeijingDateTimeFormatter.string(from: resetsAt, language: language)
     }
 
-    private func formatTokens(_ tokens: Int) -> String {
-        if tokens >= 1_000_000 {
-            return String(format: "%.1fM", Double(tokens) / 1_000_000)
-        }
-        if tokens >= 1_000 {
-            return String(format: "%.1fK", Double(tokens) / 1_000)
-        }
-        return String(tokens)
-    }
+
 }
 
 private struct StatusTag: View {
@@ -256,10 +248,10 @@ private struct StatusTag: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 10, weight: .bold))
+            .font(.system(size: 12, weight: .bold))
             .foregroundStyle(foreground)
             .padding(.horizontal, 7)
-            .frame(height: 20)
+            .frame(height: 24)
             .background(background, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }

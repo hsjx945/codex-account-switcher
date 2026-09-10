@@ -1,195 +1,44 @@
-# Testing
+# Testing / 验证
 
-> Tiny fork note (2026-09-04): recovery and fault-injection acceptance is defined by
-> [the accepted Tiny plan](plans/2026-09-04-tiny-codex-switcher.md). The upstream no-journal statements below are historical.
+Current version: **0.2.2**. Run all commands from the repository root with Swift 6.2 and macOS SDK tools.
 
-## 1. Philosophy
-
-The MVP test suite should prove two things:
-
-1. the direct happy path works;
-2. failures stop exactly where they occur and remain visible while the bounded pre-commit credential restoration preserves account consistency.
-
-It should test the documented verification/commit restoration and confirm that no general rollback state machine, retry, credential backup file, journal, or startup recovery exists.
-
-### Local toolchains
-
-Xcode and GitHub-hosted macOS runners use SwiftPM's normal `Testing` module discovery. Some standalone Command Line Tools distributions place `Testing.framework` and `lib_TestingInterop.dylib` outside SwiftPM's default search paths. For that CLT layout, `Package.swift` derives the selected toolchain root from `xcrun --find swift` and adds only the required framework and runtime search paths when both files exist. The repository contains no fixed developer-directory path.
-
-## 2. Unit tests
-
-### 2.1 Usage windows
-
-Test:
-
-- `used=0` → `100% left`;
-- `used=24` → `76% left`;
-- `used=58` → `42% left`;
-- `used=100` → `0% left`;
-- values below 0 and above 100 are clamped;
-- a six-to-eight-day window is selected from either `primary` or `secondary` buckets;
-- exactly 300 minutes is accepted as the optional 5-hour window;
-- 4-hour and 6-hour windows are not labeled as 5-hour Usage;
-- absence of a six-to-eight-day window returns `Usage unavailable`;
-- absence of a 5-hour window preserves valid weekly Usage;
-- weekly-only cache entries from older versions still decode.
-
-### 2.2 Profile repository
-
-Test:
-
-- load empty repository;
-- create profile;
-- save active credential into profile;
-- activate profile credential;
-- delete inactive profile;
-- reject deleting active profile;
-- persist normalized Usage with mode `0600`;
-- load old settings without `showsFiveHourUsage` as false and persist later changes;
-- remove cached Usage with its inactive profile;
-- surface read, write, atomic replacement, and delete errors.
-
-### 2.3 Identity matching
-
-Test:
-
-- matching account IDs succeed;
-- differing account IDs fail;
-- normalized matching emails succeed when account ID is unavailable;
-- differing emails fail;
-- missing ID and email fails.
-
-## 3. Switch-flow tests
-
-Use fakes for Desktop, account storage, and Codex identity.
-
-Expected call order:
-
-```text
-closeDesktop
-saveCurrent
-activateTarget
-readActiveIdentity
-commitActiveAccountID
-openDesktop
+```sh
+./scripts/check-version.sh
+./scripts/run-swift-tests.sh
+./scripts/run-core-checks.sh
+./scripts/run-ui-checks.sh
+node scripts/check-site-geo.mjs
+./scripts/package-local-dmg.sh
 ```
 
-Inject an error at each call and assert:
+## Automated behavior
 
-- the error reports the correct `SwitchStage`;
-- no later call occurs;
-- no retry occurs;
-- `isMutating` returns to false after presentation.
+`run-swift-tests.sh` verifies Swift Testing discovery before running tests serially. Temporary directories and fake executables isolate account storage, RPC, login, cancellation, credential activation, encrypted rollback, startup recovery, identity mismatch, process failure and timeouts. No real credentials or signed session URLs belong in fixtures.
 
-Specific partial-state assertions:
+`run-core-checks.sh` runs standalone acceptance checks. A stale cached quota with remaining allowance must not acquire an exhaustion warning; zero allowance still does. A failure exits nonzero and blocks CI.
 
-- the registry is read and `originalActiveID` is validated before saving or replacing credentials;
-- activation error before replacement leaves state metadata unchanged and runs no restoration;
-- verification error restores the original active credential and leaves the original metadata active;
-- state-write error restores the original active credential and leaves the original metadata active;
-- a retry after restoration cannot overwrite the original profile with target credentials;
-- a restoration failure reports both the original and restoration errors;
-- Desktop-open error leaves target auth and target metadata active.
+`run-ui-checks.sh` compiles the actual SwiftUI components and creates synthetic English/Chinese light/dark renders in `.build/ui-checks/`. It is a maintained command, not a copied `swiftc` invocation with an outdated source list. Inspect the renders for clipping and contrast. Rendering a fixture does not prove actual menu-bar navigation.
 
-Use both the fake store and the real `AccountStore` so call ordering, atomic credential installation, registry-write failure, and on-disk bytes are covered.
+`check-version.sh` checks the source version and client identity. Packaging reads `CITATION.cff` directly and rejects a mismatched override. `check-site-geo.mjs` checks public page titles, descriptions, canonical URLs, reciprocal language links, JSON-LD versions, sitemap coverage and internal links. It does not establish indexing or traffic growth.
 
-## 4. App-server fixture tests
+## Native interaction acceptance
 
-Create a fake JSON-RPC child process that returns:
+Use synthetic profiles in an isolated app model to verify:
 
-- identity success;
-- identity mismatch;
-- 5-hour and weekly rate-limit success from one response;
-- response with both `primary` and `secondary`;
-- response with `primary` only;
-- malformed JSON;
-- process exit;
-- request timeout.
+1. Begin browser sign-in, close and reopen the popover, and still reach Cancel Adding Account.
+2. Cancel the pending login, then confirm account actions become usable again.
+3. Closing an unconfirmed switch discards the selection; reopening shows the account list.
+4. During a switch, presentation rebuilds retain progress from the shared model and do not start another switch.
+5. English/Chinese account rows, loading/cached Token summaries and Settings remain readable.
 
-Assert that the client does not retry, makes one rate-limit request per read, and does not convert one duration into another Usage window.
+Actual Desktop account switching is separate: it can close the task-hosting app and change live credentials. Do not use real `~/.codex` as test storage. Report a real account handoff only when observed in an explicitly authorized separate runtime.
 
-## 5. UI tests
+## Package and release
 
-Verify:
+Verify the exact app/DMG path printed by the scripts, bundle version, architecture, signature and checksum. Ad-hoc signing is not Apple notarization. CI reports signing mode; partial configured signing secrets fail, absent secrets create an explicitly unnotarized artifact. The release tag must identify the current remote main commit. Existing releases are preserved.
 
-- current row is highlighted;
-- no checkmark or `Current` label exists;
-- reset text remains on the name line in the default compact layout;
-- enabled 5-hour display shows separate 5h and 7d rows with percentages and reset times;
-- enabled 5-hour display omits the 5h row when data is absent;
-- English and Simplified Chinese Usage labels remain fully visible;
-- progress-bar accessibility value equals `NN% left`;
-- footer contains equal-width Manage Accounts, Settings, and Quit actions;
-- Manage Accounts and Settings navigate inside the popover;
-- reopening after closing a secondary page starts on the account list;
-- Settings contains Launch at Login, Show Percentage in Menu Bar, Show 5-hour Usage, and Language in that order;
-- Login Item status maps `notRegistered`, `enabled`, `requiresApproval`, and `notFound` to disabled, enabled, approval-required, and unavailable UI states;
-- all three Settings toggles expose localized accessibility labels;
-- switch confirmation describes Desktop and CLI consequences;
-- canceling switch or removal keeps the popover open and performs no mutation;
-- closing the browser during Add Account leaves the rest of the popover interactive, and Cancel Adding Account stops the pending login;
-- account rows display cached Usage while refresh runs;
-- a short-interval timer test proves that a manual refresh postpones the previous deadline and cancellation stops later rounds;
-- active profile remove button is disabled;
-- disabling Show 5-hour Usage restores the existing weekly row layout;
-- the menu-bar percentage remains weekly when 5-hour display is enabled.
+Main pushes run CI; site changes also deploy Pages. Tag pushes run release validation, tests, packaging and bilingual Release creation. Check the resulting GitHub job and live website separately from local validation.
 
-## 6. Manual test matrix
+## 中文边界
 
-With the packaged application:
-
-1. open Settings and enable Launch at Login;
-2. confirm `sfltool dumpbtm` contains `com.liuzhao.codex-account-switcher`;
-3. if macOS reports approval required, use the displayed System Settings link, approve the item, and confirm the Toggle becomes enabled after reopening Settings;
-4. quit the app, sign out and back in, and confirm the menu-bar item appears automatically;
-5. disable Launch at Login and confirm the system registration is removed.
-
-With two real test accounts:
-
-1. add Account A;
-2. add Account B;
-3. open menu and confirm the existing weekly layout for both;
-4. enable Show 5-hour Usage and confirm available 5h and 7d rows, then verify an account without 5-hour data omits only the 5h row;
-5. confirm the menu-bar percentage still matches weekly Usage;
-6. start a Codex CLI under A;
-7. switch A → B;
-8. with an active local chat, confirm the switcher closes Desktop without visual automation or manual interaction;
-9. confirm Desktop reopens as B without manual confirmation or restart;
-10. confirm the existing CLI was not terminated;
-11. start a new CLI and confirm it uses B;
-12. switch B → A;
-13. disconnect network and confirm cached Usage remains visible with a warning;
-14. remove the cache, disconnect network, and confirm Usage unavailable appears;
-15. close the popover, wait five minutes, and confirm `usage-cache.json` receives a newer successful value;
-16. force identity mismatch and confirm the original `auth.json` is restored while the mismatch remains visible;
-17. make `accounts.json` unwritable and confirm the original `auth.json` is restored while the state-write failure remains visible;
-18. make restoration fail and confirm both errors are shown.
-
-## 7. Repository checks
-
-Before release:
-
-```text
-only main branch remains
-5-hour Usage defaults off and affects account rows only
-4-hour and 6-hour windows are never labeled as 5-hour Usage
-only the bounded verification/commit credential restoration exists
-no general rollback state machine
-no credential backup file
-no transaction journal
-no Keychain implementation
-launch-at-login state comes from macOS Service Management
-no account-rename UI or model operation
-```
-
-## 8. Release automation checks
-
-The release workflow runs only on `v*` tag pushes under one repository-wide release concurrency group. Static validation should confirm:
-
-- ordinary `main` pushes do not start the release workflow and the workflow never creates or pushes a tag;
-- `CITATION.cff`, the package default, and CodexClient declare the same semantic version;
-- the derived `RELEASE_TAG` identifies the GitHub Release, while the DMG and checksum use fixed asset names compatible with `releases/latest/download/...`;
-- tag events require the event tag, repository version, checked-out commit, and `origin/main` commit to match;
-- an existing GitHub Release sets `SHOULD_RELEASE=false` and all tests, signing, notarization, packaging, and publication steps skip successfully;
-- a missing Release sets `SHOULD_RELEASE=true`, then the tag workflow runs tests, signing, notarization, packaging, checksum generation, and `gh release create --latest --verify-tag`;
-- conflicting tags and API failures stop with the original values visible.
+自动测试使用临时目录、合成凭据和假进程，不会证明真实账号已切换。渲染成功不等于真实菜单交互验收；本地网页检查不等于正式网站上线、搜索引擎收录或流量增长。最终结果需分别说明测试、真实运行、Git/CI、网站与 Release 状态。

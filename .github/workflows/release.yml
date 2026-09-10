@@ -33,21 +33,7 @@ jobs:
             refs/heads/main:refs/remotes/origin/main
 
           release_version=$(sed -n 's/^version:[[:space:]]*\([^[:space:]]*\)$/\1/p' CITATION.cff)
-          package_version=$(sed -n 's/^APP_VERSION=${RELEASE_VERSION:-\([^}]*\)}$/\1/p' scripts/package-local-app.sh)
-          client_version=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",$/\1/p' Sources/CodexAccountSwitcher/CodexClient.swift)
-
-          if [[ ! "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "CITATION.cff has an invalid release version: '$release_version'" >&2
-            exit 1
-          fi
-          if [[ "$package_version" != "$release_version" ]]; then
-            echo "Package default version '$package_version' does not match CITATION.cff '$release_version'" >&2
-            exit 1
-          fi
-          if [[ "$client_version" != "$release_version" ]]; then
-            echo "CodexClient version '$client_version' does not match CITATION.cff '$release_version'" >&2
-            exit 1
-          fi
+          ./scripts/check-version.sh
 
           release_tag="v${release_version}"
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then
@@ -103,9 +89,33 @@ jobs:
           set -euo pipefail
           ./scripts/run-swift-tests.sh
           ./scripts/run-core-checks.sh
+          ./scripts/run-ui-checks.sh
+          node scripts/check-site-geo.mjs
+
+      - name: Select signing mode
+        if: env.SHOULD_RELEASE == 'true'
+        env:
+          CERTIFICATE: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          API_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          if [[ -n "$CERTIFICATE" && -n "$CERTIFICATE_PASSWORD" && -n "$API_KEY" && -n "$API_KEY_ID" && -n "$API_ISSUER" ]]; then
+            echo "SIGNING_MODE=notarized" >> "$GITHUB_ENV"
+          elif [[ -n "$CERTIFICATE$CERTIFICATE_PASSWORD$API_KEY$API_KEY_ID$API_ISSUER" ]]; then
+            echo "Signing configuration is incomplete; configure all signing secrets or remove the partial configuration." >&2
+            exit 1
+          else
+            echo "SIGNING_MODE=adhoc" >> "$GITHUB_ENV"
+          fi
+
+      - name: Package ad-hoc signed build without Apple notarization
+        if: env.SHOULD_RELEASE == 'true' && env.SIGNING_MODE == 'adhoc'
+        run: ./scripts/package-local-dmg.sh
 
       - name: Package, notarize, and staple Developer ID signed DMG
-        if: env.SHOULD_RELEASE == 'true'
+        if: env.SHOULD_RELEASE == 'true' && env.SIGNING_MODE == 'notarized'
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -251,8 +261,15 @@ jobs:
           main_commit=$(git rev-parse origin/main^{commit})
           test "$tag_commit" = "$main_commit"
           artifact=".build/artifacts/Codex-Account-Switcher-macos-arm64.dmg"
+          notes="$RUNNER_TEMP/release-notes.md"
+          cp .github/release-notes.md "$notes"
+          if [[ "$SIGNING_MODE" == notarized ]]; then
+            printf '\n## Artifact signing / 安装包签名\n\nDeveloper ID signed and Apple notarized. / 已使用 Developer ID 签名并完成 Apple 公证。\n' >> "$notes"
+          else
+            printf '\n## Artifact signing / 安装包签名\n\nAd-hoc signed; NOT Developer ID signed or Apple notarized. macOS may block opening this download. Build from source if needed; do not treat this as an Apple-approved distribution.\n\n仅本地临时签名，未使用 Developer ID、未完成 Apple 公证。macOS 可能阻止打开；可选择从源码构建，不应将此包视为 Apple 已批准的发行版。\n' >> "$notes"
+          fi
           gh release create "$RELEASE_TAG" "$artifact" "$artifact.sha256" \
             --title "Codex Account Switcher ${RELEASE_TAG}" \
-            --notes-file .github/release-notes.md \
+            --notes-file "$notes" \
             --latest \
             --verify-tag

@@ -253,7 +253,7 @@ struct CoreChecks {
         try require(MenuBarQuotaPresentation(state: .loaded(quotaFixture), identityConflict: false).title == "100% / 50%", "menu shows five-hour then weekly quota")
         try require(MenuBarQuotaPresentation(state: .loaded(quotaFixture), identityConflict: true).title == "—", "conflicting identity hides quota")
         try require(MenuBarQuotaPresentation(state: .unavailable("offline"), identityConflict: false).title == "—", "missing quota is not zero")
-        try require(MenuBarQuotaPresentation(state: .stale(quotaFixture, "offline"), identityConflict: false).title == "100% / 50%!", "stale menu quota is marked")
+        try require(MenuBarQuotaPresentation(state: .stale(quotaFixture, "offline"), identityConflict: false).title == "100% / 50%", "refresh failure does not imply exhausted quota")
         for (used, expected) in [(Double.greatestFiniteMagnitude, 0), (-Double.greatestFiniteMagnitude, 100)] {
             let result = try WeeklyUsageNormalizer.normalize([
                 RateLimitWindow(usedPercent: used, windowDurationMins: 10080, resetsAt: nil),

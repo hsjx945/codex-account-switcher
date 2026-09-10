@@ -25,6 +25,8 @@ struct SettingsView: View {
             .frame(maxHeight: 560)
             .disabled(model.isSavingSettings)
         }
+        .font(.system(size: 15))
+        .controlSize(.large)
         .onAppear { model.refreshLaunchAtLoginStatus() }
     }
 
@@ -46,7 +48,7 @@ struct SettingsView: View {
                         model.openLoginItemsSettings()
                     }
                     .buttonStyle(.link)
-                    .font(.system(size: 10.5))
+                    .font(.system(size: 13))
                     .padding(.horizontal, 12)
                     .padding(.bottom, 9)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -76,7 +78,7 @@ struct SettingsView: View {
 
                 HStack {
                     Text(model.text("language"))
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                     Spacer()
                     Picker(model.text("language"), selection: Binding(
                         get: { model.settings.language },
@@ -91,7 +93,7 @@ struct SettingsView: View {
                     .fixedSize()
                 }
                 .padding(.horizontal, 12)
-                .frame(minHeight: 50)
+                .frame(minHeight: 56)
             }
         }
     }
@@ -141,7 +143,7 @@ struct SettingsView: View {
 
                     HStack {
                         Text(model.text("warmup_time"))
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(.system(size: 15, weight: .medium))
                         Spacer()
                         DatePicker(
                             model.text("warmup_time"),
@@ -156,7 +158,7 @@ struct SettingsView: View {
                         .fixedSize()
                     }
                     .padding(.horizontal, 12)
-                    .frame(minHeight: 50)
+                    .frame(minHeight: 56)
                 }
             }
         }
@@ -186,7 +188,7 @@ private struct SettingsSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title.uppercased())
-                .font(.system(size: 9.5, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.secondary)
                 .tracking(0.7)
                 .padding(.leading, 4)
@@ -220,10 +222,10 @@ private struct SettingToggleRow: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                 if let detail {
                     Text(detail)
-                        .font(.system(size: 9.5))
+                        .font(.system(size: 13))
                         .foregroundStyle(detailColor)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -234,13 +236,13 @@ private struct SettingToggleRow: View {
             Toggle("", isOn: $isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .fixedSize()
                 .accessibilityLabel(title)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(minHeight: 50)
+        .padding(.vertical, 12)
+        .frame(minHeight: 56)
     }
 }
 

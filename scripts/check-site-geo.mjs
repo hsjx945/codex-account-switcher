@@ -8,6 +8,7 @@ const baseURL = "https://liuzhao1225.github.io/codex-account-switcher/";
 const llmsURL = `${baseURL}llms.txt`;
 const latestDMGURL = "https://github.com/liuzhao1225/codex-account-switcher/releases/latest/download/Codex-Account-Switcher-macos-arm64.dmg";
 const errors = [];
+const version = fs.readFileSync(path.join(root, "CITATION.cff"), "utf8").match(/^version: (.+)$/m)?.[1];
 
 function fail(message) {
   errors.push(message);
@@ -101,12 +102,32 @@ for (const file of htmlFiles) {
       fail(`${relative}: missing ${language} hreflang`);
     }
   }
+  for (const link of html.matchAll(/<link\s+rel=["']alternate["'][^>]*>/gi)) {
+    const href = link[0].match(/href=["']([^"']+)["']/i)?.[1];
+    const language = link[0].match(/hreflang=["']([^"']+)["']/i)?.[1];
+    if (!href || !language) continue;
+    const target = siteFileForURL(href);
+    if (!target || !fs.existsSync(target)) {
+      fail(`${relative}: language alternate has no local page: ${href}`);
+      continue;
+    }
+    const alternate = fs.readFileSync(target, "utf8");
+    if (!alternate.includes(`href="${canonical}"`)) fail(`${relative}: missing return language link from ${href}`);
+  }
 
   const jsonLD = [...html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
   if (jsonLD.length === 0) fail(`${relative}: missing JSON-LD`);
   for (const block of jsonLD) {
     try {
-      JSON.parse(block[1]);
+      const data = JSON.parse(block[1]);
+      const inspect = (value) => {
+        if (!value || typeof value !== "object") return;
+        if (value.softwareVersion && value.softwareVersion !== version) {
+          fail(`${relative}: softwareVersion ${value.softwareVersion} differs from ${version}`);
+        }
+        Object.values(value).forEach(inspect);
+      };
+      inspect(data);
     } catch (error) {
       fail(`${relative}: invalid JSON-LD: ${error.message}`);
     }
@@ -115,6 +136,10 @@ for (const file of htmlFiles) {
   for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)) {
     const target = localTargetForHref(file, match[1]);
     if (target && !fs.existsSync(target)) fail(`${relative}: broken internal link ${match[1]}`);
+  }
+  for (const match of html.matchAll(/<(?:img|script)\b[^>]*src=["']([^"']+)["'][^>]*>/gi)) {
+    const target = localTargetForHref(file, match[1]);
+    if (target && !fs.existsSync(target)) fail(`${relative}: missing asset ${match[1]}`);
   }
 
   for (const match of html.matchAll(/https:\/\/github\.com\/liuzhao1225\/codex-account-switcher\/releases\/[^"'\s<]+\.dmg/g)) {

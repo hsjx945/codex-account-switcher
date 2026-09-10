@@ -6,6 +6,7 @@ output_dir="$project_dir/.build/core-checks"
 mkdir -p "$output_dir"
 
 swiftc \
+  -swift-version 6 \
   -parse-as-library \
   "$project_dir/Sources/CodexAccountSwitcher/Models.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/LocalSessionUsageScanner.swift" \

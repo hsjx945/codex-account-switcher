@@ -281,6 +281,41 @@ struct AppModelPresentationTests {
         // Daily aggregate data is never presented as a real-time total.
         #expect(model.reportedTokenTotal == nil)
     }
+
+    @Test func addAccountWaitingPageSurvivesPopoverRecreationAndCanCancel() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "add-account-waiting-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
+        let model = AppModel(
+            store: store,
+            codex: CodexClient(locator: CodexExecutableLocator(explicitURL: URL(fileURLWithPath: "/usr/bin/false"))),
+            switchService: PresentationNoopSwitch(),
+            operationGate: AccountOperationGate(),
+            loginService: PresentationBlockingLogin()
+        )
+        model.addAccount()
+        #expect(model.isAddingAccount)
+
+        let waiting = NSHostingView(rootView: AddAccountWaitingPage(model: model, onCancel: {}, showsHeader: true).frame(width: 420))
+        waiting.setFrameSize(NSSize(width: 420, height: 1))
+        waiting.layoutSubtreeIfNeeded()
+        let waitingSize = waiting.fittingSize
+        // Both initial and recreated roots must route to the waiting surface,
+        // not merely produce some nonempty account-list layout.
+        for _ in 0..<2 {
+            let reopened = NSHostingView(rootView: MenuBarPopover(model: model))
+            reopened.setFrameSize(NSSize(width: 420, height: 1))
+            reopened.layoutSubtreeIfNeeded()
+            #expect(reopened.fittingSize == waitingSize, "Reopened popover must retain the login cancellation surface")
+        }
+        let cancelPage = AddAccountWaitingPage(model: model) { model.cancelAddingAccount() }
+        cancelPage.requestCancellation()
+        for _ in 0..<100 where model.isAddingAccount {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!model.isAddingAccount)
+        #expect(model.accounts.isEmpty)
+    }
 }
 
 private struct PresentationNoopSwitch: SwitchServicing {
@@ -294,5 +329,12 @@ private struct PresentationCommittedWarning: SwitchServicing {
     func switchAccount(to targetID: UUID) async throws {
         try await store.commitActiveAccountID(targetID)
         throw OperationError(stage: nil, titleKey: "operation_failed", messageKey: nil, message: "fixture cleanup warning", underlyingDescription: nil)
+    }
+}
+
+private struct PresentationBlockingLogin: LoginServicing {
+    func login(profileHome: URL) async throws -> AccountIdentity {
+        try await Task.sleep(for: .seconds(60))
+        return AccountIdentity(accountID: "never-registered", email: "never@example.com")
     }
 }

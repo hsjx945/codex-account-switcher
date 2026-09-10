@@ -71,6 +71,32 @@ struct RenderUIChecks {
                 }
                 try png.write(to: output.appending(path: "accounts-\(name)-\(theme).png"))
 
+                if theme == "light" {
+                    let examples = ["personal@example.com", "work@example.com", "client@example.com"]
+                    let marketing = VStack(spacing: 8) {
+                        ForEach(examples.indices, id: \.self) { index in
+                            AccountRow(
+                                account: AccountProfile(id: profiles[index].id, displayName: examples[index], email: examples[index], accountID: nil, planType: ["pro", "plus", "team"][index], createdAt: reset),
+                                usageState: .loaded(WeeklyUsage(remainingPercent: [71, 97, 48][index], resetsAt: reset, fiveHourRemainingPercent: 85, fiveHourResetsAt: reset)),
+                                isActive: index == 0, language: language, showsFiveHourUsage: true,
+                                tokenActivity: nil, tokenReportingDate: nil, tokenActivityRefreshFinished: true,
+                                showsTokenActivity: false, warmupStatus: nil
+                            )
+                        }
+                    }
+                    .padding(9)
+                    .frame(width: 420)
+                    .background(Color(white: 0.96))
+                    .environment(\.colorScheme, .light)
+                    let marketingRenderer = ImageRenderer(content: marketing)
+                    marketingRenderer.scale = 2
+                    guard let cgImage = marketingRenderer.cgImage,
+                          let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]) else {
+                        throw CocoaError(.fileWriteUnknown)
+                    }
+                    try data.write(to: output.appending(path: "website-\(name).png"))
+                }
+
                 let complete = LocalTokenComponents(total: 12_345, uncachedInput: 3_000, cachedInput: 8_000, output: 1_345)
                 let missing = LocalTokenComponents(total: 9, uncachedInput: nil, cachedInput: nil, output: nil)
                 let localStates: [(LocalTokenComponents?, [LocalModelTokenUsage], String, Bool)] = [
@@ -88,10 +114,8 @@ struct RenderUIChecks {
                             language: language,
                             statusText: localStates[stateIndex].2,
                             detailText: L10n.string("token_total_local_hint", language: language),
-                            retryTitle: L10n.string("refresh", language: language),
                             isRefreshing: stateIndex == 0,
-                            initiallyExpanded: localStates[stateIndex].3,
-                            onRetry: {}
+                            initiallyExpanded: localStates[stateIndex].3
                         )
                     }
                 }

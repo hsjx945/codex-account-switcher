@@ -4,13 +4,12 @@ set -euo pipefail
 
 SCRIPT_DIR=${0:A:h}
 PROJECT_DIR=${SCRIPT_DIR:h}
-VERSION=${RELEASE_VERSION:-0.2.0}
-APP_PATH="$PROJECT_DIR/.build/arm64-apple-macosx/release/Codex Account Switcher.app"
+ARCH=${SWIFT_BUILD_ARCH:-$(uname -m)}
 ARTIFACT_DIR="$PROJECT_DIR/.build/artifacts"
 DMG_ROOT="$PROJECT_DIR/.build/local-dmg-root"
-DMG_PATH="$ARTIFACT_DIR/Tiny-Codex-Switcher-${VERSION}-arm64.dmg"
+DMG_PATH="$ARTIFACT_DIR/Codex-Account-Switcher-macos-${ARCH}.dmg"
 
-"$PROJECT_DIR/scripts/package-local-app.sh"
+APP_PATH=$("$PROJECT_DIR/scripts/package-local-app.sh" | tail -n 1)
 
 rm -rf "$DMG_ROOT"
 rm -f "$DMG_PATH" "$DMG_PATH.sha256"
@@ -20,11 +19,11 @@ cp "$PROJECT_DIR/LICENSE" "$DMG_ROOT/LICENSE.txt"
 ln -s /Applications "$DMG_ROOT/Applications"
 
 hdiutil create \
-  -volname "Tiny Codex Switcher" \
+  -volname "Codex Account Switcher" \
   -srcfolder "$DMG_ROOT" \
   -format UDZO \
   -ov \
   "$DMG_PATH" >/dev/null
 
-shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
+(cd "$ARTIFACT_DIR" && shasum -a 256 "${DMG_PATH:t}" > "${DMG_PATH:t}.sha256")
 echo "$DMG_PATH"

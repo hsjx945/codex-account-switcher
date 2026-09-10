@@ -6,6 +6,20 @@ struct LocalSessionUsageScannerTests {
     private let now = ISO8601DateFormatter().date(from: "2026-09-04T12:00:00Z")!
     private var utc: Calendar { var value = Calendar(identifier: .gregorian); value.timeZone = TimeZone(secondsFromGMT: 0)!; return value }
 
+    @Test func cachedTotalsSurviveRestartAndExpireAtDayBoundary() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let file = try fixture.file(day: "2026/09/04", name: "cache.jsonl")
+        try fixture.append([meta("cache"), modern(at: "2026-09-04T01:00:00Z", response: "r", tokens: 123)], to: file)
+        let scanner = LocalSessionUsageScanner(codexHome: fixture.root)
+        #expect(await scanner.refresh(now: now).todayTokens == 123)
+        let restarted = LocalSessionUsageScanner(codexHome: fixture.root)
+        let cached = await restarted.cachedSummary(now: now)
+        #expect(cached?.todayTokens == 123)
+        #expect(cached?.isRefreshing == true)
+        #expect(await restarted.cachedSummary(now: now.addingTimeInterval(86400)) == nil)
+        #expect(await restarted.refresh(now: now).isRefreshing == false)
+    }
+
     @Test func historicalZeroComponentPlaceholdersRetainTotalsWithoutInventingPrices() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let file = try fixture.file(day: "2026/09/03", name: "total-only.jsonl")

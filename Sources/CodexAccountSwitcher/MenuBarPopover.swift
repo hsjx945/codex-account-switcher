@@ -19,7 +19,12 @@ struct MenuBarPopover: View {
                 )
             }
 
-            if let account = model.switchingAccount {
+            if model.isAddingAccount {
+                AddAccountWaitingPage(model: model, onCancel: {
+                    model.cancelAddingAccount()
+                    page = .accounts
+                }, showsHeader: true)
+            } else if let account = model.switchingAccount {
                 SwitchingPage(model: model, account: account)
             } else if let account = model.switchedAccount {
                 VStack(spacing: 16) {
@@ -31,25 +36,34 @@ struct MenuBarPopover: View {
                 .frame(maxWidth: .infinity, minHeight: 220)
                 .padding(24)
             } else if let account = pendingSwitch {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 20) {
                     Text(model.format("switch_title", account.preferredLabel))
-                        .font(.headline)
+                        .font(.system(size: 18, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(model.text("switch_body"))
-                        .font(.subheadline)
+                        .font(.system(size: 15))
+                        .lineSpacing(4)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        Button(model.text("cancel")) { pendingSwitch = nil }
-                            .keyboardShortcut(.cancelAction)
-                        Spacer()
-                        Button(model.text("confirm_switch")) {
+                    HStack(spacing: 12) {
+                        Button { pendingSwitch = nil } label: {
+                            Text(model.text("cancel"))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(SwitchActionStyle(isPrimary: false))
+                        .keyboardShortcut(.cancelAction)
+                        Button {
                             pendingSwitch = nil
                             switchAccount(account)
+                        } label: {
+                            Text(model.text("confirm_switch"))
+                                .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(SwitchActionStyle(isPrimary: true))
                         .keyboardShortcut(.defaultAction)
                         .accessibilityIdentifier("confirm-account-switch")
                     }
+                    .font(.system(size: 15, weight: .semibold))
                 }
                 .padding(24)
             } else {
@@ -132,7 +146,7 @@ struct MenuBarPopover: View {
                     language: model.settings.language,
                     statusText: localTokenStatusText,
                     detailText: model.text("token_total_local_hint"),
-                    isRefreshing: model.localTokenSnapshot == nil,
+                    isRefreshing: model.localTokenSnapshot == nil || model.localTokenSnapshot?.isRefreshing == true,
                     initiallyExpanded: initiallyExpandsLocalModels
                 )
             }
@@ -250,18 +264,27 @@ struct TokenTotalRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
             summaryTile(
                 label: title,
-                value: usage.map { TokenAmountFormatter.compact($0.total) } ?? "—",
+                value: usage.map { TokenAmountFormatter.compact($0.total) } ?? L10n.string(isRefreshing ? "token_loading" : "usage_unavailable", language: language),
                 color: .blue
             )
             summaryTile(
                 label: L10n.string(hasUnpricedUsage ? "api_partial_value" : "api_estimated_value", language: language),
-                value: APITokenValuation.dollars(APITokenValuation.subtotal(models)),
+                value: usage == nil && isRefreshing ? L10n.string("token_loading", language: language) : APITokenValuation.dollars(APITokenValuation.subtotal(models)),
                 color: .orange
             )
-            if isRefreshing { ProgressView().controlSize(.mini) }
+            }
+            if isRefreshing {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text(L10n.string(usage == nil ? "token_initial_scan" : "token_refreshing_cached", language: language))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(12)
         .background(totalBackground)
@@ -296,7 +319,7 @@ struct TokenTotalRow: View {
     private func summaryTile(label: String, value: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
             Text(value)
                 .font(.system(size: 22, weight: .bold).monospacedDigit())
@@ -419,6 +442,23 @@ struct TokenTotalRow: View {
     }
 }
 
+private struct SwitchActionStyle: ButtonStyle {
+    let isPrimary: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 12)
+            .foregroundStyle(isPrimary ? Color.white : Color.primary)
+            .background(
+                isPrimary ? Color(red: 0, green: 0.34, blue: 0.78) : Color.primary.opacity(0.10),
+                in: RoundedRectangle(cornerRadius: 10)
+            )
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.55)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
 private enum PopoverPage {
     case accounts
     case manageAccounts
@@ -448,7 +488,7 @@ private struct IdentityStatusBanner: View {
 
             Button(retryTitle, action: onRetry)
                 .buttonStyle(.plain)
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(color)
         }
         .padding(.horizontal, 12)
@@ -477,7 +517,7 @@ struct SwitchingPage: View {
                 Text(model.text("switch_progress_" + model.switchProgress.rawValue))
                     .font(.system(size: 15, weight: .bold))
                 Text(account.preferredLabel)
-                    .font(.system(size: 11.5))
+                    .font(.system(size: 15))
                     .foregroundStyle(.secondary)
             }
         }
@@ -501,9 +541,9 @@ private struct InlineErrorBanner: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                 Text(message)
-                    .font(.system(size: 10.5))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -543,10 +583,10 @@ private struct FooterAction: View {
                     Label(title, systemImage: systemImage)
                 }
             }
-            .font(.system(size: 11.5, weight: .medium))
+            .font(.system(size: 15, weight: .medium))
             .lineLimit(1)
             .padding(.horizontal, 7)
-            .frame(maxWidth: .infinity, minHeight: 38)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -1,22 +1,22 @@
 import CoreFoundation
 import Foundation
 
-enum LocalTokenScanState: Equatable, Sendable { case idle, monitoring, failed(String) }
+enum LocalTokenScanState: Codable, Equatable, Sendable { case idle, monitoring, failed(String) }
 
-struct LocalTokenComponents: Equatable, Sendable {
+struct LocalTokenComponents: Codable, Equatable, Sendable {
     let total: Int
     let uncachedInput: Int?
     let cachedInput: Int?
     let output: Int?
 }
 
-struct LocalModelTokenUsage: Equatable, Sendable, Identifiable {
+struct LocalModelTokenUsage: Codable, Equatable, Sendable, Identifiable {
     let model: String?
     let usage: LocalTokenComponents
     var id: String { model ?? "__unknown_model__" }
 }
 
-struct LocalTokenUsageSnapshot: Equatable, Sendable {
+struct LocalTokenUsageSnapshot: Codable, Equatable, Sendable {
     let usage: LocalTokenComponents?
     let models: [LocalModelTokenUsage]
     let latestEventAt: Date?
@@ -24,6 +24,7 @@ struct LocalTokenUsageSnapshot: Equatable, Sendable {
     let state: LocalTokenScanState
     var last30DaysUsage: LocalTokenComponents? = nil
     var last30DaysModels: [LocalModelTokenUsage] = []
+    var isRefreshing = false
     var todayTokens: Int? { usage?.total }
 }
 
@@ -111,6 +112,7 @@ actor LocalSessionUsageScanner {
         return formatter
     }()
     private let roots: [URL]
+    private let summaryCacheURL: URL
     private let fileManager: FileManager
     private var files: [URL: FileState] = [:]
     private var monitorTask: Task<Void, Never>?
@@ -120,6 +122,7 @@ actor LocalSessionUsageScanner {
         let environmentHome = ProcessInfo.processInfo.environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let home = codexHome ?? environmentHome ?? fileManager.homeDirectoryForCurrentUser.appending(path: ".codex", directoryHint: .isDirectory)
         roots = [home.appending(path: "sessions", directoryHint: .isDirectory), home.appending(path: "archived_sessions", directoryHint: .isDirectory)]
+        summaryCacheURL = home.appending(path: ".cache/account-switcher-token-summary-v1.json")
         self.fileManager = fileManager
     }
 
@@ -135,6 +138,7 @@ actor LocalSessionUsageScanner {
             let month = try summarize(now: now, start: periodStart)
             let snapshot = LocalTokenUsageSnapshot(usage: result.usage, models: result.models, latestEventAt: result.latest, scannedAt: now, state: monitorTask == nil ? .idle : .monitoring, last30DaysUsage: month.usage, last30DaysModels: month.models)
             lastSnapshot = snapshot
+            saveSummary(snapshot)
             return snapshot
         } catch {
             let snapshot = LocalTokenUsageSnapshot(usage: nil, models: [], latestEventAt: lastSnapshot?.latestEventAt, scannedAt: now, state: .failed(error.localizedDescription))
@@ -146,6 +150,9 @@ actor LocalSessionUsageScanner {
     func start(interval: Duration = .seconds(10), onUpdate: @escaping @MainActor @Sendable (LocalTokenUsageSnapshot) -> Void) {
         guard monitorTask == nil else { return }
         monitorTask = Task { [weak self] in
+            if let cached = await self?.cachedSummary() {
+                await onUpdate(cached)
+            }
             while !Task.isCancelled {
                 guard let self else { return }
                 await onUpdate(await self.refresh())
@@ -153,6 +160,29 @@ actor LocalSessionUsageScanner {
             }
         }
     }
+    // Persist only derived totals, never session content. A same-day snapshot
+    // can be displayed while the complete, deduplicated history is rebuilt.
+    func cachedSummary(now: Date = Date()) -> LocalTokenUsageSnapshot? {
+        guard let data = try? Data(contentsOf: summaryCacheURL),
+              var snapshot = try? JSONDecoder().decode(LocalTokenUsageSnapshot.self, from: data),
+              snapshot.usage != nil, snapshot.scannedAt <= now,
+              BeijingDateTimeFormatter.calendar.isDate(snapshot.scannedAt, inSameDayAs: now)
+        else { return nil }
+        snapshot.isRefreshing = true
+        return snapshot
+    }
+
+    private func saveSummary(_ snapshot: LocalTokenUsageSnapshot) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        do {
+            try fileManager.createDirectory(at: summaryCacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: summaryCacheURL, options: .atomic)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: summaryCacheURL.path)
+        } catch {
+            // A cache failure must not hide a successfully computed total.
+        }
+    }
+
     func stop() { monitorTask?.cancel(); monitorTask = nil }
     func isMonitoring() -> Bool { monitorTask != nil }
 

@@ -16,7 +16,6 @@ final class SwitcherPopoverController: NSObject, NSPopoverDelegate {
     init(model: AppModel) {
         self.model = model
         super.init()
-        popover.contentViewController = NSHostingController(rootView: MenuBarPopover(model: model))
         popover.behavior = .applicationDefined
         popover.delegate = self
         popover.animates = true
@@ -80,6 +79,11 @@ final class SwitcherPopoverController: NSObject, NSPopoverDelegate {
 
     func show() {
         guard !popover.isShown, let button = item.button else { return }
+        // Each presentation starts with fresh navigation and no unconfirmed
+        // account selection. In-flight account operations remain in the model;
+        // MenuBarPopover renders the add-account waiting page before this
+        // local route, so a reopened popover still exposes cancellation.
+        popover.contentViewController = NSHostingController(rootView: MenuBarPopover(model: model))
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
