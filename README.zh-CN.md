@@ -4,7 +4,7 @@
 
 [English](README.md) · 简体中文
 
-[网站](https://liuzhao1225.github.io/codex-account-switcher/zh-CN/) · [Release](https://github.com/liuzhao1225/codex-account-switcher/releases) · [源码](https://github.com/liuzhao1225/codex-account-switcher)
+[网站](https://hsjx945.github.io/codex-account-switcher/zh-CN/) · [Release](https://github.com/hsjx945/codex-account-switcher/releases) · [源码](https://github.com/hsjx945/codex-account-switcher)
 
 ![Codex Account Switcher 界面](site/assets/account-switcher-usage.zh-CN.png)
 
@@ -12,7 +12,7 @@
 
 当前源码版本为 **0.2.2**，支持 **macOS 14 或更高版本的 Apple Silicon Mac**，需要已安装 Codex Desktop / Codex 可执行程序。
 
-1. 打开 [Release 页面](https://github.com/liuzhao1225/codex-account-switcher/releases/latest)，查看该安装包的签名状态。
+1. 打开 [Release 页面](https://github.com/hsjx945/codex-account-switcher/releases/latest)，查看该安装包的签名状态。
 2. 下载 `Codex-Account-Switcher-macos-arm64.dmg` 和 SHA-256 校验文件。
 3. 打开 DMG，将应用复制到“应用程序”，再启动应用。
 4. 通过浏览器添加账号，之后从菜单栏选择并确认切换。
@@ -74,3 +74,5 @@ node scripts/check-site-geo.mjs
 ## 许可证
 
 [MIT](LICENSE)，保留原始版权声明。
+
+此 macOS fork 由 **hsjx945** 维护，原始上游为 [Zhao Liu / liuzhao1225](https://github.com/liuzhao1225/codex-account-switcher)。

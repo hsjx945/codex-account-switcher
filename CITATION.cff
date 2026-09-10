@@ -3,12 +3,14 @@ message: "If you use Codex Account Switcher, please cite this repository."
 title: "Codex Account Switcher"
 type: software
 authors:
+  - name: "hsjx945 (fork maintainer)"
+    website: "https://github.com/hsjx945"
   - given-names: "Zhao"
     family-names: "Liu"
     alias: "liuzhao1225"
     website: "https://liuzhao1225.github.io/codex-account-switcher/about/creator/"
-repository-code: "https://github.com/liuzhao1225/codex-account-switcher"
-url: "https://liuzhao1225.github.io/codex-account-switcher/"
+repository-code: "https://github.com/hsjx945/codex-account-switcher"
+url: "https://hsjx945.github.io/codex-account-switcher/"
 license: MIT
 version: 0.2.2
 date-released: 2026-09-10

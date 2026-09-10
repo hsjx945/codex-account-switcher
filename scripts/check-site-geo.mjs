@@ -4,9 +4,9 @@ import vm from "node:vm";
 
 const root = process.cwd();
 const siteRoot = path.join(root, "site");
-const baseURL = "https://liuzhao1225.github.io/codex-account-switcher/";
+const baseURL = "https://hsjx945.github.io/codex-account-switcher/";
 const llmsURL = `${baseURL}llms.txt`;
-const latestDMGURL = "https://github.com/liuzhao1225/codex-account-switcher/releases/latest/download/Codex-Account-Switcher-macos-arm64.dmg";
+const latestDMGURL = "https://github.com/hsjx945/codex-account-switcher/releases/latest/download/Codex-Account-Switcher-macos-arm64.dmg";
 const errors = [];
 const version = fs.readFileSync(path.join(root, "CITATION.cff"), "utf8").match(/^version: (.+)$/m)?.[1];
 
@@ -142,7 +142,7 @@ for (const file of htmlFiles) {
     if (target && !fs.existsSync(target)) fail(`${relative}: missing asset ${match[1]}`);
   }
 
-  for (const match of html.matchAll(/https:\/\/github\.com\/liuzhao1225\/codex-account-switcher\/releases\/[^"'\s<]+\.dmg/g)) {
+  for (const match of html.matchAll(/https:\/\/github\.com\/hsjx945\/codex-account-switcher\/releases\/[^"'\s<]+\.dmg/g)) {
     if (match[0] !== latestDMGURL) fail(`${relative}: release download must use ${latestDMGURL}`);
   }
 }

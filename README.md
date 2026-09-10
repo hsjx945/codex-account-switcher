@@ -4,7 +4,7 @@
 
 English · [简体中文](README.zh-CN.md)
 
-[Website](https://liuzhao1225.github.io/codex-account-switcher/) · [Releases](https://github.com/liuzhao1225/codex-account-switcher/releases) · [Source](https://github.com/liuzhao1225/codex-account-switcher)
+[Website](https://hsjx945.github.io/codex-account-switcher/) · [Releases](https://github.com/hsjx945/codex-account-switcher/releases) · [Source](https://github.com/hsjx945/codex-account-switcher)
 
 ![Codex Account Switcher interface](site/assets/account-switcher-usage.png)
 
@@ -12,7 +12,7 @@ English · [简体中文](README.zh-CN.md)
 
 This source version is **0.2.2**. It targets **Apple Silicon Macs with macOS 14 or later** and requires an installed Codex Desktop / Codex executable.
 
-1. Open the [Release page](https://github.com/liuzhao1225/codex-account-switcher/releases/latest) and read its signing status.
+1. Open the [Release page](https://github.com/hsjx945/codex-account-switcher/releases/latest) and read its signing status.
 2. Download `Codex-Account-Switcher-macos-arm64.dmg` and its SHA-256 checksum.
 3. Open the DMG, copy the app to Applications, and launch it from there.
 4. Add an account through browser sign-in; choose an account in the menu bar to switch.
@@ -74,3 +74,5 @@ With complete signing secrets, the release workflow signs with Developer ID and 
 ## License
 
 [MIT](LICENSE). Original copyright notices remain intact.
+
+This macOS fork is maintained by **hsjx945**, based on [Zhao Liu / liuzhao1225’s upstream project](https://github.com/liuzhao1225/codex-account-switcher).

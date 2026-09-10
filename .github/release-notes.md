@@ -4,6 +4,8 @@
 
 Native macOS menu-bar account switching for authorized Codex accounts. Requires Apple Silicon, macOS 14+, and an installed Codex executable.
 
+This macOS fork is maintained by [hsjx945](https://github.com/hsjx945/codex-account-switcher), based on [Zhao Liu's upstream project](https://github.com/liuzhao1225/codex-account-switcher). Original attribution and the MIT license are preserved.
+
 - Keep browser sign-in cancellation accessible after closing and reopening the popover.
 - Improve account rows, settings and switch confirmation readability.
 - Show same-day saved local Token totals while rebuilding today's and the last 30 days' deduplicated history. Totals are device-wide, not per account.
@@ -16,6 +18,8 @@ Download the DMG and checksum below. Read **Artifact signing** before installati
 ## 简体中文
 
 面向有权使用的 Codex 账号的 macOS 原生菜单栏切换工具。需要 Apple Silicon、macOS 14 或更高版本，以及已安装的 Codex 可执行程序。
+
+此 macOS 分支由 [hsjx945](https://github.com/hsjx945/codex-account-switcher) 维护，基于 [Zhao Liu 的上游项目](https://github.com/liuzhao1225/codex-account-switcher)，保留原作者署名和 MIT 许可证。
 
 - 修复等待浏览器登录时关闭再打开弹窗后无法取消的问题。
 - 提升账号行、设置和切换确认的可读性。

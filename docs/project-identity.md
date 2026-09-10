@@ -9,3 +9,7 @@ The original upstream project was created by **Zhao Liu / liuzhao1225** at [liuz
 原始上游由 **Zhao Liu / liuzhao1225** 创建，保留其版权与来源信息。上游版本、平台、签名状态、作者介绍及流量数据，不能被当作独立构建产物的验证结果。每次 Release 必须说明自身的源码提交、产物、校验值和签名状态。
 
 See [search/AI discovery](discoverability.md) for metadata requirements and measurement boundaries.
+
+Current macOS fork / 当前 macOS 分支: [hsjx945/codex-account-switcher](https://github.com/hsjx945/codex-account-switcher).
+
+Website / 双语网站: [Codex Account Switcher](https://hsjx945.github.io/codex-account-switcher/).
