@@ -456,6 +456,12 @@ enum UsageViewState: Equatable, Sendable {
         }
     }
 
+    func isQuotaExhausted(showsFiveHour: Bool) -> Bool {
+        guard let usage = displayedUsage else { return false }
+        return usage.remainingPercent <= 0
+            || (showsFiveHour && usage.fiveHourRemainingPercent.map { $0 <= 0 } == true)
+    }
+
     var refreshError: String? {
         guard case let .stale(_, message) = self else { return nil }
         return message
@@ -633,7 +639,7 @@ struct MenuBarQuotaPresentation: Equatable {
         }
         isStale = state?.refreshError != nil
         let fiveHour = usage.fiveHourRemainingPercent.map { "\(min(max($0, 0), 100))%" } ?? "—"
-        title = (showsFiveHour ? "\(fiveHour) / " : "") + "\(min(max(usage.remainingPercent, 0), 100))%" + (isStale ? "!" : "")
+        title = (showsFiveHour ? "\(fiveHour) / " : "") + "\(min(max(usage.remainingPercent, 0), 100))%" + (state?.isQuotaExhausted(showsFiveHour: showsFiveHour) == true ? "!" : "")
     }
 }
 

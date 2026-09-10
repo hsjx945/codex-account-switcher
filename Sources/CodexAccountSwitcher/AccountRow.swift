@@ -23,6 +23,7 @@ struct AccountRow: View {
         VStack(alignment: .leading, spacing: 11) {
             titleRow
             usageContent
+                .help(usageState.refreshError ?? "")
             if let warmupStatus {
                 warmupContent(warmupStatus)
             }
@@ -52,7 +53,8 @@ struct AccountRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            if let message = usageState.refreshError {
+            if usageState.isQuotaExhausted(showsFiveHour: shouldShowFiveHourUsage) {
+                let message = "\(L10n.string("usage", language: language)) 0%"
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)

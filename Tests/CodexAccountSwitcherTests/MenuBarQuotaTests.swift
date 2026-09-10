@@ -12,7 +12,19 @@ struct MenuBarQuotaTests {
     @Test func proHidesEvenCachedFiveHourQuota() {
         let usage = WeeklyUsage(remainingPercent: 77, resetsAt: nil, fiveHourRemainingPercent: 100)
         #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false, showsFiveHour: false).title == "77%")
-        #expect(MenuBarQuotaPresentation(state: .stale(usage, "offline"), identityConflict: false, showsFiveHour: false).title == "77%!")
+        #expect(MenuBarQuotaPresentation(state: .stale(usage, "offline"), identityConflict: false, showsFiveHour: false).title == "77%")
+    }
+
+    @Test func exhaustionWarningIgnoresRefreshFailuresAndHiddenProWindow() {
+        for remaining in [1, 54, 100] {
+            let usage = WeeklyUsage(remainingPercent: remaining, resetsAt: nil, fiveHourRemainingPercent: 0)
+            for state in [UsageViewState.loaded(usage), .stale(usage, "offline")] {
+                #expect(!state.isQuotaExhausted(showsFiveHour: false))
+                #expect(state.isQuotaExhausted(showsFiveHour: true))
+            }
+        }
+        #expect(!UsageViewState.unavailable("offline").isQuotaExhausted(showsFiveHour: false))
+        #expect(UsageViewState.loaded(WeeklyUsage(remainingPercent: 0, resetsAt: nil)).isQuotaExhausted(showsFiveHour: false))
     }
 
     @Test func rejectsOverflowingOrNegativeTokenTotals() {
@@ -45,7 +57,7 @@ struct MenuBarQuotaTests {
     @Test func marksStaleQuotaAndPreservesActualZero() {
         let usage = WeeklyUsage(remainingPercent: 0, resetsAt: nil)
         let fresh = MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false)
-        #expect(fresh.title == "— / 0%")
+        #expect(fresh.title == "— / 0%!")
         #expect(!fresh.isStale)
         let stale = MenuBarQuotaPresentation(state: .stale(usage, "offline"), identityConflict: false)
         #expect(stale.title == "— / 0%!")
@@ -53,7 +65,7 @@ struct MenuBarQuotaTests {
     }
 
     @Test func clampsOutOfRangeCachedValues() {
-        for (input, expected) in [(-3, "— / 0%"), (103, "— / 100%")] {
+        for (input, expected) in [(-3, "— / 0%!"), (103, "— / 100%")] {
             let usage = WeeklyUsage(remainingPercent: input, resetsAt: nil)
             #expect(MenuBarQuotaPresentation(state: .loaded(usage), identityConflict: false).title == expected)
         }
