@@ -10,6 +10,7 @@ swiftc \
   -parse-as-library \
   "$project_dir/Sources/CodexAccountSwitcher/Models.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/LocalSessionUsageScanner.swift" \
+  "$project_dir/Sources/CodexAccountSwitcher/TaskUsageAnalytics.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/WeeklyUsageNormalizer.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/AccountStore.swift" \
   "$project_dir/Sources/CodexAccountSwitcher/SwitchRecovery.swift" \

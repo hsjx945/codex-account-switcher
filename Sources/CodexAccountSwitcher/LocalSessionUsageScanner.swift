@@ -16,6 +16,26 @@ struct LocalModelTokenUsage: Codable, Equatable, Sendable, Identifiable {
     var id: String { model ?? "__unknown_model__" }
 }
 
+struct LocalTaskProfileUsage: Codable, Equatable, Sendable, Identifiable {
+    let model: String?
+    let effort: String?
+    let usage: LocalTokenComponents
+
+    var id: String { "\(model ?? "__unknown_model__")|\(effort ?? "__unknown_effort__")" }
+}
+
+struct LocalTaskTokenUsage: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let parentID: String?
+    let startedAt: Date
+    let latestEventAt: Date
+    let usage: LocalTokenComponents
+    let profiles: [LocalTaskProfileUsage]
+    let activeDuration: TimeInterval?
+
+    var duration: TimeInterval { activeDuration ?? max(0, latestEventAt.timeIntervalSince(startedAt)) }
+}
+
 struct LocalTokenUsageSnapshot: Codable, Equatable, Sendable {
     let usage: LocalTokenComponents?
     let models: [LocalModelTokenUsage]
@@ -24,6 +44,7 @@ struct LocalTokenUsageSnapshot: Codable, Equatable, Sendable {
     let state: LocalTokenScanState
     var last30DaysUsage: LocalTokenComponents? = nil
     var last30DaysModels: [LocalModelTokenUsage] = []
+    var last30DaysTasks: [LocalTaskTokenUsage] = []
     var isRefreshing = false
     var todayTokens: Int? { usage?.total }
 }
@@ -58,6 +79,7 @@ actor LocalSessionUsageScanner {
         let timestamp: Date
         let usage: LocalTokenComponents
         let model: String?
+        let effort: String?
         let kind: EventKind
     }
     private struct FileState {
@@ -67,11 +89,14 @@ actor LocalSessionUsageScanner {
         var parsedSize = 0
         var pending = Data()
         var currentModel: String?
+        var currentEffort: String?
+        var createdAt: Date?
         var lastCumulativeTotal = 0
         var lastCumulativeTuple: UsageTuple?
         var sessionID: String?
         var parentID: String?
         var events: [UsageEvent] = []
+        var taskDurations: [(Date, TimeInterval)] = []
         var modernBoundary: Int?
         var parseError: String?
     }
@@ -136,7 +161,8 @@ actor LocalSessionUsageScanner {
             if let error = files.values.compactMap(\.parseError).first { throw LocalSessionUsageError.unreadableFile(error) }
             let result = try summarize(now: now, start: dayStart)
             let month = try summarize(now: now, start: periodStart)
-            let snapshot = LocalTokenUsageSnapshot(usage: result.usage, models: result.models, latestEventAt: result.latest, scannedAt: now, state: monitorTask == nil ? .idle : .monitoring, last30DaysUsage: month.usage, last30DaysModels: month.models)
+            let tasks = try summarizeTasks(now: now, start: periodStart)
+            let snapshot = LocalTokenUsageSnapshot(usage: result.usage, models: result.models, latestEventAt: result.latest, scannedAt: now, state: monitorTask == nil ? .idle : .monitoring, last30DaysUsage: month.usage, last30DaysModels: month.models, last30DaysTasks: tasks)
             lastSnapshot = snapshot
             saveSummary(snapshot)
             return snapshot
@@ -252,24 +278,36 @@ actor LocalSessionUsageScanner {
     }
 
     private func parseLine(_ data: Data, into state: inout FileState) {
-        let markers = ["\"session_meta\"", "\"turn_context\"", "\"token_usage_record\"", "\"token_count\""].map { Data($0.utf8) }
+        let markers = ["\"session_meta\"", "\"turn_context\"", "\"token_usage_record\"", "\"token_count\"", "\"task_complete\""].map { Data($0.utf8) }
         guard markers.contains(where: { data.range(of: $0) != nil }) else { return }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let type = object["type"] as? String else {
             state.parseError = "malformed local token event"; return
         }
         let payload = object["payload"] as? [String: Any]
         let tokenCount = type == "event_msg" && payload?["type"] as? String == "token_count"
-        guard ["session_meta", "turn_context", "token_usage_record"].contains(type) || tokenCount else { return }
+        let taskComplete = type == "event_msg" && payload?["type"] as? String == "task_complete"
+        guard ["session_meta", "turn_context", "token_usage_record"].contains(type) || tokenCount || taskComplete else { return }
         guard let payload else { state.parseError = "local token event has no payload"; return }
         if type == "session_meta" {
             state.sessionID = payload["id"] as? String ?? payload["session_id"] as? String
             state.parentID = payload["forked_from_id"] as? String
                 ?? payload["parent_thread_id"] as? String
                 ?? (((payload["source"] as? [String: Any])?["subagent"] as? [String: Any])?["thread_spawn"] as? [String: Any])?["parent_thread_id"] as? String
+            if let timestampText = object["timestamp"] as? String ?? payload["timestamp"] as? String {
+                state.createdAt = parseDate(timestampText)
+            }
             return
         }
         if type == "turn_context" {
             if let model = payload["model"] as? String, !model.isEmpty { state.currentModel = model }
+            if let effort = payload["effort"] as? String, !effort.isEmpty { state.currentEffort = effort }
+            return
+        }
+        if taskComplete {
+            guard let timestampText = object["timestamp"] as? String, let timestamp = parseDate(timestampText) else { return }
+            if let duration = Self.number(payload["duration_ms"]), duration >= 0 {
+                state.taskDurations.append((timestamp, duration / 1_000))
+            }
             return
         }
         guard let timestampText = object["timestamp"] as? String, let timestamp = parseDate(timestampText) else {
@@ -281,7 +319,7 @@ actor LocalSessionUsageScanner {
             else { state.parseError = "invalid token_usage_record"; return }
             let model = (payload["model"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? state.currentModel
             if state.modernBoundary == nil { state.modernBoundary = state.events.count }
-            state.events.append(UsageEvent(timestamp: timestamp, usage: usage, model: model, kind: .response(responseID)))
+            state.events.append(UsageEvent(timestamp: timestamp, usage: usage, model: model, effort: state.currentEffort, kind: .response(responseID)))
             return
         }
         if payload["info"] is NSNull { return }
@@ -315,10 +353,40 @@ actor LocalSessionUsageScanner {
         state.lastCumulativeTotal = cumulativeTotal
         state.lastCumulativeTuple = cumulativeTuple
         let replayKey = cumulativeTuple.map { LegacyReplayKey(cumulative: $0, last: lastTuple) }
-        state.events.append(UsageEvent(timestamp: timestamp, usage: usage, model: state.currentModel, kind: .legacy(replayKey)))
+        state.events.append(UsageEvent(timestamp: timestamp, usage: usage, model: state.currentModel, effort: state.currentEffort, kind: .legacy(replayKey)))
     }
 
     private func summarize(now: Date, start: Date) throws -> (usage: LocalTokenComponents, models: [LocalModelTokenUsage], latest: Date?) {
+        let streams = canonicalStreams()
+        var aggregate = Aggregate(), byModel: [String?: Aggregate] = [:], latest: Date?
+        var responses: [String: LocalTokenComponents] = [:]
+        for events in streams.values {
+            for event in events where event.timestamp >= start && event.timestamp <= now {
+                if case let .response(id) = event.kind {
+                    if let previous = responses[id] {
+                        guard previous == event.usage else { throw LocalSessionUsageError.unreadableFile("conflicting response_id usage") }
+                        continue
+                    }
+                    responses[id] = event.usage
+                }
+                try aggregate.add(event.usage)
+                var modelAggregate = byModel[event.model, default: Aggregate()]
+                try modelAggregate.add(event.usage)
+                byModel[event.model] = modelAggregate
+                latest = max(latest ?? event.timestamp, event.timestamp)
+            }
+        }
+        let unsortedModels: [LocalModelTokenUsage] = byModel.map { item in
+            LocalModelTokenUsage(model: item.key, usage: item.value.usage)
+        }
+        let models = unsortedModels.sorted { lhs, rhs in
+            if lhs.usage.total != rhs.usage.total { return lhs.usage.total > rhs.usage.total }
+            return (lhs.model ?? "") < (rhs.model ?? "")
+        }
+        return (aggregate.usage, models, latest)
+    }
+
+    private func canonicalStreams() -> [String: [UsageEvent]] {
         let canonical = Dictionary(grouping: files, by: { $0.value.sessionID ?? $0.key.path }).compactMapValues { copies in
             copies.sorted { lhs, rhs in
                 if lhs.value.events.count != rhs.value.events.count { return lhs.value.events.count > rhs.value.events.count }
@@ -346,33 +414,57 @@ actor LocalSessionUsageScanner {
             } else { prefixCount = 0 }
             if prefixCount > 0 { streams[id]?.removeFirst(prefixCount) }
         }
+        return streams
+    }
 
-        var aggregate = Aggregate(), byModel: [String?: Aggregate] = [:], latest: Date?
-        var responses: [String: LocalTokenComponents] = [:]
-        for events in streams.values {
-            for event in events where event.timestamp >= start && event.timestamp <= now {
-                if case let .response(id) = event.kind {
-                    if let previous = responses[id] {
+    private func summarizeTasks(now: Date, start: Date) throws -> [LocalTaskTokenUsage] {
+        let streams = canonicalStreams()
+        var seenResponses: [String: LocalTokenComponents] = [:]
+        var tasks: [LocalTaskTokenUsage] = []
+        for id in streams.keys.sorted() {
+            guard let state = files.first(where: { ($0.value.sessionID ?? $0.key.path) == id })?.value,
+                  let stream = streams[id] else { continue }
+            var total = Aggregate(), byProfile: [String: (String?, String?, Aggregate)] = [:]
+            var first: Date?, latest: Date?
+            for event in stream where event.timestamp >= start && event.timestamp <= now {
+                if case let .response(responseID) = event.kind {
+                    if let previous = seenResponses[responseID] {
                         guard previous == event.usage else { throw LocalSessionUsageError.unreadableFile("conflicting response_id usage") }
                         continue
                     }
-                    responses[id] = event.usage
+                    seenResponses[responseID] = event.usage
                 }
-                try aggregate.add(event.usage)
-                var modelAggregate = byModel[event.model, default: Aggregate()]
-                try modelAggregate.add(event.usage)
-                byModel[event.model] = modelAggregate
+                try total.add(event.usage)
+                let key = "\(event.model ?? "__unknown_model__")|\(event.effort ?? "__unknown_effort__")"
+                var profile = byProfile[key] ?? (event.model, event.effort, Aggregate())
+                try profile.2.add(event.usage)
+                byProfile[key] = profile
+                first = min(first ?? event.timestamp, event.timestamp)
                 latest = max(latest ?? event.timestamp, event.timestamp)
             }
+            guard let first, let latest else { continue }
+            let profiles = byProfile.values.map { LocalTaskProfileUsage(model: $0.0, effort: $0.1, usage: $0.2.usage) }
+                .sorted { lhs, rhs in
+                    if lhs.usage.total != rhs.usage.total { return lhs.usage.total > rhs.usage.total }
+                    return lhs.id < rhs.id
+                }
+            tasks.append(LocalTaskTokenUsage(
+                id: id,
+                parentID: state.parentID,
+                startedAt: min(state.createdAt ?? first, first),
+                latestEventAt: latest,
+                usage: total.usage,
+                profiles: profiles,
+                activeDuration: {
+                    let durations = state.taskDurations.filter { $0.0 >= start && $0.0 <= now }.map(\.1)
+                    return durations.isEmpty ? nil : durations.reduce(0, +)
+                }()
+            ))
         }
-        let unsortedModels: [LocalModelTokenUsage] = byModel.map { item in
-            LocalModelTokenUsage(model: item.key, usage: item.value.usage)
+        return tasks.sorted { lhs, rhs in
+            if lhs.latestEventAt != rhs.latestEventAt { return lhs.latestEventAt > rhs.latestEventAt }
+            return lhs.id < rhs.id
         }
-        let models = unsortedModels.sorted { lhs, rhs in
-            if lhs.usage.total != rhs.usage.total { return lhs.usage.total > rhs.usage.total }
-            return (lhs.model ?? "") < (rhs.model ?? "")
-        }
-        return (aggregate.usage, models, latest)
     }
 
     private func authoritativeEvents(_ state: FileState) -> [UsageEvent] {
@@ -428,6 +520,11 @@ actor LocalSessionUsageScanner {
         let integer = number.intValue, decimal = number.decimalValue
         guard decimal >= 0, decimal <= Decimal(Int.max), Decimal(integer) == decimal else { return nil }
         return integer
+    }
+    private static func number(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let result = number.doubleValue
+        return result.isFinite ? result : nil
     }
     private func parseDate(_ value: String) -> Date? {
         fractionalDateParser.date(from: value) ?? plainDateParser.date(from: value)

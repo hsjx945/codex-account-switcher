@@ -52,6 +52,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var tokenActivityRefreshFinished = false
     @Published private(set) var tokenRefreshErrors: [UUID: String] = [:]
     @Published private(set) var localTokenSnapshot: LocalTokenUsageSnapshot?
+    @Published private(set) var taskUsageAnalytics: TaskUsageAnalyticsSnapshot = .empty
     @Published private(set) var warmupStatuses: [UUID: WarmupRecord] = [:]
     @Published private(set) var settings: AppSettings = .default
     @Published private(set) var switchProgress: SwitchProgress = .stoppingRequests
@@ -73,6 +74,7 @@ final class AppModel: ObservableObject {
     private let notificationService: any QuotaNotificationServicing
     private let operationGate: AccountOperationGate
     private let localUsageScanner: LocalSessionUsageScanner?
+    private let taskUsageTracker: TaskUsageTracker?
     private var hasStarted = false
     private var startTask: Task<Void, Never>?
     private var usageRefreshTask: Task<Void, Never>?
@@ -91,7 +93,8 @@ final class AppModel: ObservableObject {
         taskStateReader: (any DesktopTaskStateReading)? = nil,
         notificationService: any QuotaNotificationServicing = InertQuotaNotificationService(),
         loginService: (any LoginServicing)? = nil,
-        localUsageScanner: LocalSessionUsageScanner? = nil
+        localUsageScanner: LocalSessionUsageScanner? = nil,
+        taskUsageTracker: TaskUsageTracker? = nil
     ) {
         self.store = store
         self.codex = codex
@@ -102,6 +105,7 @@ final class AppModel: ObservableObject {
         self.taskStateReader = taskStateReader ?? codex
         self.notificationService = notificationService
         self.localUsageScanner = localUsageScanner
+        self.taskUsageTracker = taskUsageTracker
     }
 
     static func live() -> AppModel {
@@ -123,7 +127,8 @@ final class AppModel: ObservableObject {
             operationGate: operationGate,
             desktop: desktop,
             notificationService: QuotaNotificationService(),
-            localUsageScanner: LocalSessionUsageScanner()
+            localUsageScanner: LocalSessionUsageScanner(),
+            taskUsageTracker: TaskUsageTracker()
         )
     }
 
@@ -225,7 +230,12 @@ final class AppModel: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
         await localUsageScanner?.start { [weak self] snapshot in
-            self?.localTokenSnapshot = snapshot
+            guard let self else { return }
+            self.localTokenSnapshot = snapshot
+            Task { @MainActor [weak self] in
+                guard let self, let id = self.activeAccountID, let tracker = self.taskUsageTracker else { return }
+                self.taskUsageAnalytics = await tracker.snapshot(accountID: id, tasks: snapshot.last30DaysTasks)
+            }
         }
         refreshLaunchAtLoginStatus()
         do {
@@ -297,7 +307,11 @@ final class AppModel: ObservableObject {
     func refreshLocalTokenUsage() {
         Task { [weak self] in
             guard let self else { return }
-            self.localTokenSnapshot = await self.localUsageScanner?.refresh()
+            guard let snapshot = await self.localUsageScanner?.refresh() else { return }
+            self.localTokenSnapshot = snapshot
+            if let id = self.activeAccountID, let tracker = self.taskUsageTracker {
+                self.taskUsageAnalytics = await tracker.snapshot(accountID: id, tasks: snapshot.last30DaysTasks)
+            }
         }
     }
 
@@ -396,6 +410,14 @@ final class AppModel: ObservableObject {
                     let previousUsage = usageStates[id]?.displayedUsage
                     if let usage {
                         usageStates[id] = .loaded(usage)
+                        if id == activeAccountID, activeIdentityConfirmed,
+                           let snapshot = localTokenSnapshot, let tracker = taskUsageTracker {
+                            taskUsageAnalytics = await tracker.record(
+                                accountID: id,
+                                usage: usage,
+                                tasks: snapshot.last30DaysTasks
+                            )
+                        }
                     } else if let quotaError {
                         usageStates[id] = previousUsage.map { .stale($0, quotaError) } ?? .unavailable(quotaError)
                     }
@@ -821,6 +843,9 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ registry: AccountRegistry) {
+        if activeAccountID != registry.activeAccountID {
+            taskUsageAnalytics = .empty
+        }
         accounts = registry.accounts
         activeAccountID = registry.activeAccountID
         usageStates = usageStates.filter { id, _ in registry.accounts.contains(where: { $0.id == id }) }

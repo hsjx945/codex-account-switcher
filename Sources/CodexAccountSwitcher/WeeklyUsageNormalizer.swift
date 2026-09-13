@@ -25,7 +25,8 @@ enum WeeklyUsageNormalizer {
             remainingPercent: try remainingPercent(for: weekly),
             resetsAt: weekly.resetsAt.map(Date.init(timeIntervalSince1970:)),
             fiveHourRemainingPercent: try fiveHour.map { try remainingPercent(for: $0) },
-            fiveHourResetsAt: fiveHour?.resetsAt.map(Date.init(timeIntervalSince1970:))
+            fiveHourResetsAt: fiveHour?.resetsAt.map(Date.init(timeIntervalSince1970:)),
+            weeklyUsedPercent: weekly.usedPercent
         )
     }
 

@@ -283,17 +283,22 @@ struct WeeklyUsage: Codable, Equatable, Sendable {
     let resetsAt: Date?
     let fiveHourRemainingPercent: Int?
     let fiveHourResetsAt: Date?
+    /// The service's unrounded weekly percentage, when available. UI bars keep
+    /// using the rounded integer while empirical attribution retains precision.
+    let weeklyUsedPercent: Double?
 
     init(
         remainingPercent: Int,
         resetsAt: Date?,
         fiveHourRemainingPercent: Int? = nil,
-        fiveHourResetsAt: Date? = nil
+        fiveHourResetsAt: Date? = nil,
+        weeklyUsedPercent: Double? = nil
     ) {
         self.remainingPercent = remainingPercent
         self.resetsAt = resetsAt
         self.fiveHourRemainingPercent = fiveHourRemainingPercent
         self.fiveHourResetsAt = fiveHourResetsAt
+        self.weeklyUsedPercent = weeklyUsedPercent
     }
 
     func allowsWarmup(at now: Date) -> Bool {

@@ -195,6 +195,28 @@ struct LocalSessionUsageScannerTests {
         #expect(result.models.map(\.usage.total).reduce(0, +) == result.todayTokens)
     }
 
+    @Test func taskBreakdownPreservesSessionModelAndReasoningEffort() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let file = try fixture.file(day: "2026/09/04", name: "task.jsonl")
+        try fixture.append([
+            meta("task-session"),
+            "{\"timestamp\":\"2026-09-04T00:01:00Z\",\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-5.6-sol\",\"effort\":\"medium\"}}",
+            modernDetailed(at: "2026-09-04T00:02:00Z", response: "task-r", input: 100, cached: 60, output: 20, reasoning: 5),
+            "{\"timestamp\":\"2026-09-04T00:03:00Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"duration_ms\":600000}}",
+        ], to: file)
+        let result = await LocalSessionUsageScanner(codexHome: fixture.root).refresh(now: now, calendar: utc)
+        #expect(result.last30DaysTasks.count == 1)
+        #expect(result.last30DaysTasks[0].id == "task-session")
+        #expect(result.last30DaysTasks[0].duration == 600)
+        #expect(result.last30DaysTasks[0].profiles == [
+            LocalTaskProfileUsage(
+                model: "gpt-5.6-sol",
+                effort: "medium",
+                usage: LocalTokenComponents(total: 120, uncachedInput: 40, cachedInput: 60, output: 20)
+            )
+        ])
+    }
+
     @Test func legacyUsesLastUsageAndSkipsRepeatedCumulativeTuple() async throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         let file = try fixture.file(day: "2026/09/04", name: "legacy-last.jsonl")

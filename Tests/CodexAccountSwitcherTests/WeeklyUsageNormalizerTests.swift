@@ -27,6 +27,7 @@ struct WeeklyUsageNormalizerTests {
             RateLimitWindow(usedPercent: 20, windowDurationMins: 6 * 24 * 60, resetsAt: 20),
         ])
         #expect(result.remainingPercent == 42)
+        #expect(result.weeklyUsedPercent == 58)
         #expect(result.resetsAt == reset)
         #expect(result.fiveHourRemainingPercent == 99)
         #expect(result.fiveHourResetsAt == Date(timeIntervalSince1970: 10))

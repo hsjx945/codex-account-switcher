@@ -143,6 +143,7 @@ struct MenuBarPopover: View {
                     models: model.localTokenSnapshot?.models ?? [],
                     last30DaysUsage: model.localTokenSnapshot?.last30DaysUsage,
                     last30DaysModels: model.localTokenSnapshot?.last30DaysModels ?? [],
+                    analytics: model.taskUsageAnalytics,
                     language: model.settings.language,
                     statusText: localTokenStatusText,
                     detailText: model.text("token_total_local_hint"),
@@ -231,6 +232,7 @@ struct TokenTotalRow: View {
     let models: [LocalModelTokenUsage]
     let last30DaysUsage: LocalTokenComponents?
     let last30DaysModels: [LocalModelTokenUsage]
+    let analytics: TaskUsageAnalyticsSnapshot
     let language: AppLanguage
     let statusText: String
     let detailText: String
@@ -245,6 +247,7 @@ struct TokenTotalRow: View {
         models: [LocalModelTokenUsage],
         last30DaysUsage: LocalTokenComponents? = nil,
         last30DaysModels: [LocalModelTokenUsage] = [],
+        analytics: TaskUsageAnalyticsSnapshot = .empty,
         language: AppLanguage,
         statusText: String,
         detailText: String,
@@ -256,6 +259,7 @@ struct TokenTotalRow: View {
         self.models = models
         self.last30DaysUsage = last30DaysUsage
         self.last30DaysModels = last30DaysModels
+        self.analytics = analytics
         self.language = language
         self.statusText = statusText
         self.detailText = detailText
@@ -392,10 +396,36 @@ struct TokenTotalRow: View {
                 Text(APITokenValuation.dollars(monthValue)).monospacedDigit()
             }
             .font(.system(size: 15, weight: .semibold))
+            Divider()
+            Text(L10n.string("task_efficiency_title", language: language))
+                .font(.system(size: 15, weight: .bold))
+            comparisonHeader
+            if analytics.comparisons.isEmpty {
+                Text(L10n.string("task_efficiency_collecting", language: language))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else {
+                comparisonRows
+            }
+            Divider()
+            Text(L10n.string("recent_tasks_title", language: language))
+                .font(.system(size: 15, weight: .bold))
+            taskHeader
+            if analytics.tasks.isEmpty {
+                Text(L10n.string("task_efficiency_collecting", language: language))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else {
+                taskRows
+            }
+            Text(L10n.string("task_quota_method_note", language: language))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(.primary)
         .padding(18)
-        .frame(width: 440)
+        .frame(width: 620)
     }
 
     private var modelRows: some View {
@@ -419,6 +449,98 @@ struct TokenTotalRow: View {
                 .foregroundStyle(.primary)
             }
         }
+    }
+
+    private var comparisonHeader: some View {
+        HStack(spacing: 8) {
+            Text(L10n.string("model_effort", language: language))
+            Spacer(minLength: 0)
+            Text(L10n.string("tasks_short", language: language)).frame(width: 44, alignment: .trailing)
+            Text("Token").frame(width: 72, alignment: .trailing)
+            Text(L10n.string("weekly_drop", language: language)).frame(width: 68, alignment: .trailing)
+            Text(L10n.string("vs_sol_medium", language: language)).frame(width: 62, alignment: .trailing)
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(.secondary)
+    }
+
+    private var comparisonRows: some View {
+        VStack(spacing: 7) {
+            ForEach(analytics.comparisons.prefix(10)) { item in
+                HStack(spacing: 8) {
+                    Text(profileLabel(model: item.model, effort: item.effort))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(item.taskCount.formatted()).frame(width: 44, alignment: .trailing)
+                    Text(formatTokens(item.usage.total)).frame(width: 72, alignment: .trailing)
+                    Text(formatQuota(item.weeklyQuotaPoints)).frame(width: 68, alignment: .trailing)
+                    Text(item.quotaMultiplier.map { String(format: "%.2f×", $0) } ?? "—")
+                        .frame(width: 62, alignment: .trailing)
+                }
+                .font(.system(size: 12, weight: item.model == "gpt-5.6-sol" && item.effort == "medium" ? .semibold : .regular).monospacedDigit())
+            }
+        }
+    }
+
+    private var taskHeader: some View {
+        HStack(spacing: 8) {
+            Text(L10n.string("session", language: language))
+            Text(L10n.string("model_effort", language: language))
+            Spacer(minLength: 0)
+            Text(L10n.string("duration", language: language)).frame(width: 58, alignment: .trailing)
+            Text("Token").frame(width: 72, alignment: .trailing)
+            Text(L10n.string("weekly_drop", language: language)).frame(width: 68, alignment: .trailing)
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(.secondary)
+    }
+
+    private var taskRows: some View {
+        Group {
+            if analytics.tasks.count > 7 {
+                ScrollView { taskRowList }.frame(height: 210)
+            } else {
+                taskRowList
+            }
+        }
+    }
+
+    private var taskRowList: some View {
+        VStack(spacing: 7) {
+            ForEach(analytics.tasks.prefix(20)) { task in
+                HStack(spacing: 8) {
+                    Text(shortSession(task.id)).frame(width: 64, alignment: .leading)
+                        .help(task.id)
+                    Text(profileLabel(model: task.model, effort: task.effort))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(formatDuration(task.duration)).frame(width: 58, alignment: .trailing)
+                    Text(formatTokens(task.usage.total)).frame(width: 72, alignment: .trailing)
+                    Text(formatQuota(task.weeklyQuotaPoints, allocated: task.evidence == .allocatedSharedInterval))
+                        .frame(width: 68, alignment: .trailing)
+                }
+                .font(.system(size: 12).monospacedDigit())
+            }
+        }
+    }
+
+    private func profileLabel(model: String?, effort: String?) -> String {
+        "\(model ?? L10n.string("local_token_unknown_model", language: language)) · \(effort ?? "—")"
+    }
+
+    private func shortSession(_ id: String) -> String {
+        String(id.prefix(8))
+    }
+
+    private func formatQuota(_ value: Double?, allocated: Bool = false) -> String {
+        guard let value else { return "—" }
+        return String(format: allocated ? "~%.2f pp" : "%.2f pp", value)
+    }
+
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        if seconds < 60 { return "<1m" }
+        if seconds < 3_600 { return "\(Int(seconds / 60))m" }
+        return String(format: "%.1fh", seconds / 3_600)
     }
 
     private var totalBackground: Color {

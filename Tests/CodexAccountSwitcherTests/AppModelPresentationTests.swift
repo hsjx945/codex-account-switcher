@@ -43,7 +43,11 @@ struct AppModelPresentationTests {
         let models = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "local-model"].map {
             LocalModelTokenUsage(model: $0, usage: LocalTokenComponents(total: 4_000_000, uncachedInput: 1_000_000, cachedInput: 2_000_000, output: 1_000_000))
         }
-        let row = TokenTotalRow(title: "今日消耗 Token", usage: LocalTokenComponents(total: 16_000_000, uncachedInput: 4_000_000, cachedInput: 8_000_000, output: 4_000_000), models: models, language: .simplifiedChinese, statusText: "已更新至 9 月 5 日 16:00:00", detailText: "Synthetic UI fixture", isRefreshing: false)
+        let now = Date()
+        let report = TaskUsageReport(id: "fixture-session", startedAt: now.addingTimeInterval(-600), latestEventAt: now, model: "gpt-5.6-sol", effort: "medium", usage: models[1].usage, duration: 600, weeklyQuotaPoints: 0.42, evidence: .measuredSingleTask)
+        let comparison = ModelEffortComparison(model: "gpt-5.6-sol", effort: "medium", taskCount: 1, usage: models[1].usage, activeDuration: 600, weeklyQuotaPoints: 0.42, quotaMultiplier: 1, quotaPointsPerMillionSolEquivalentTokens: 0.1)
+        let analytics = TaskUsageAnalyticsSnapshot(tasks: [report], comparisons: [comparison], unallocatedWeeklyQuotaPoints: 0, sampledAt: now)
+        let row = TokenTotalRow(title: "今日消耗 Token", usage: LocalTokenComponents(total: 16_000_000, uncachedInput: 4_000_000, cachedInput: 8_000_000, output: 4_000_000), models: models, analytics: analytics, language: .simplifiedChinese, statusText: "已更新至 9 月 5 日 16:00:00", detailText: "Synthetic UI fixture", isRefreshing: false)
         let renderer = ImageRenderer(content: row.frame(width: 420).environment(\.colorScheme, .light))
         renderer.scale = 2
         let cgImage = try #require(renderer.cgImage)
@@ -52,8 +56,8 @@ struct AppModelPresentationTests {
         let detailRenderer = ImageRenderer(content: row.details.background(Color.white).environment(\.colorScheme, .light))
         detailRenderer.scale = 2
         let detailImage = try #require(detailRenderer.cgImage)
-        #expect(detailImage.width == 880)
-        #expect(detailImage.height > 400)
+        #expect(detailImage.width == 1_240)
+        #expect(detailImage.height > 700)
         if let path = ProcessInfo.processInfo.environment["SWITCHER_TEST_RENDER_PATH"] {
             let rep = NSBitmapImageRep(cgImage: cgImage)
             try #require(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))
