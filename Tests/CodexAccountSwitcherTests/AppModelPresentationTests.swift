@@ -45,7 +45,7 @@ struct AppModelPresentationTests {
         }
         let now = Date()
         let report = TaskUsageReport(id: "fixture-session", startedAt: now.addingTimeInterval(-600), latestEventAt: now, model: "gpt-5.6-sol", effort: "medium", usage: models[1].usage, duration: 600, weeklyQuotaPoints: 0.42, evidence: .measuredSingleTask)
-        let comparison = ModelEffortComparison(model: "gpt-5.6-sol", effort: "medium", taskCount: 1, usage: models[1].usage, activeDuration: 600, weeklyQuotaPoints: 0.42, quotaMultiplier: 1, quotaPointsPerMillionSolEquivalentTokens: 0.1)
+        let comparison = ModelEffortComparison(model: "gpt-5.6-sol", effort: "medium", taskCount: 1, usage: models[1].usage, activeDuration: 600, weeklyQuotaPoints: 0.42, quotaMultiplier: 1, quotaPointsPer10ActiveMinutes: 0.42)
         let analytics = TaskUsageAnalyticsSnapshot(tasks: [report], comparisons: [comparison], unallocatedWeeklyQuotaPoints: 0, sampledAt: now)
         let row = TokenTotalRow(title: "今日消耗 Token", usage: LocalTokenComponents(total: 16_000_000, uncachedInput: 4_000_000, cachedInput: 8_000_000, output: 4_000_000), models: models, analytics: analytics, language: .simplifiedChinese, statusText: "已更新至 9 月 5 日 16:00:00", detailText: "Synthetic UI fixture", isRefreshing: false)
         let renderer = ImageRenderer(content: row.frame(width: 420).environment(\.colorScheme, .light))

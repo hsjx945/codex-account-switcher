@@ -407,6 +407,16 @@ struct TokenTotalRow: View {
             } else {
                 comparisonRows
             }
+            if analytics.unallocatedWeeklyQuotaPoints > 0 {
+                HStack {
+                    Text(L10n.string("unattributed_quota_drop", language: language))
+                    Spacer()
+                    Text(formatQuota(analytics.unallocatedWeeklyQuotaPoints))
+                        .monospacedDigit()
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
             Divider()
             Text(L10n.string("recent_tasks_title", language: language))
                 .font(.system(size: 15, weight: .bold))
@@ -457,7 +467,7 @@ struct TokenTotalRow: View {
             Spacer(minLength: 0)
             Text(L10n.string("tasks_short", language: language)).frame(width: 44, alignment: .trailing)
             Text("Token").frame(width: 72, alignment: .trailing)
-            Text(L10n.string("weekly_drop", language: language)).frame(width: 68, alignment: .trailing)
+            Text(L10n.string("quota_burn_10m", language: language)).frame(width: 78, alignment: .trailing)
             Text(L10n.string("vs_sol_medium", language: language)).frame(width: 62, alignment: .trailing)
         }
         .font(.system(size: 11, weight: .semibold))
@@ -473,7 +483,7 @@ struct TokenTotalRow: View {
                     Spacer(minLength: 0)
                     Text(item.taskCount.formatted()).frame(width: 44, alignment: .trailing)
                     Text(formatTokens(item.usage.total)).frame(width: 72, alignment: .trailing)
-                    Text(formatQuota(item.weeklyQuotaPoints)).frame(width: 68, alignment: .trailing)
+                    Text(formatQuotaRate(item.quotaPointsPer10ActiveMinutes)).frame(width: 78, alignment: .trailing)
                     Text(item.quotaMultiplier.map { String(format: "%.2f×", $0) } ?? "—")
                         .frame(width: 62, alignment: .trailing)
                 }
@@ -516,7 +526,7 @@ struct TokenTotalRow: View {
                     Spacer(minLength: 0)
                     Text(formatDuration(task.duration)).frame(width: 58, alignment: .trailing)
                     Text(formatTokens(task.usage.total)).frame(width: 72, alignment: .trailing)
-                    Text(formatQuota(task.weeklyQuotaPoints, allocated: task.evidence == .allocatedSharedInterval))
+                    Text(formatQuota(task.weeklyQuotaPoints))
                         .frame(width: 68, alignment: .trailing)
                 }
                 .font(.system(size: 12).monospacedDigit())
@@ -532,9 +542,14 @@ struct TokenTotalRow: View {
         String(id.prefix(8))
     }
 
-    private func formatQuota(_ value: Double?, allocated: Bool = false) -> String {
+    private func formatQuota(_ value: Double?) -> String {
         guard let value else { return "—" }
-        return String(format: allocated ? "~%.2f pp" : "%.2f pp", value)
+        return String(format: "%.2f pp", value)
+    }
+
+    private func formatQuotaRate(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.2f pp", value)
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {

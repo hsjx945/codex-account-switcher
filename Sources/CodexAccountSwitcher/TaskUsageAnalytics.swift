@@ -2,7 +2,6 @@ import Foundation
 
 enum TaskQuotaEvidence: String, Codable, Sendable {
     case measuredSingleTask
-    case allocatedSharedInterval
     case tokenOnly
 }
 
@@ -26,7 +25,7 @@ struct ModelEffortComparison: Identifiable, Equatable, Sendable {
     let activeDuration: TimeInterval
     let weeklyQuotaPoints: Double?
     let quotaMultiplier: Double?
-    let quotaPointsPerMillionSolEquivalentTokens: Double?
+    let quotaPointsPer10ActiveMinutes: Double?
 
     var id: String { Self.key(model: model, effort: effort) }
 
@@ -58,6 +57,7 @@ actor TaskUsageTracker {
     private struct TaskCounter: Codable, Equatable {
         var startedAt: Date
         var latestEventAt: Date
+        var activeDuration: TimeInterval
         var profiles: [String: ProfileCounter]
     }
 
@@ -72,11 +72,8 @@ actor TaskUsageTracker {
         var taskID: String
         var profileKey: String
         var weeklyQuotaPoints: Double
-        var solEquivalentTokens: Double
-        var directWeeklyQuotaPoints: Double
-        var directSolEquivalentTokens: Double
+        var directActiveSeconds: TimeInterval
         var sampleCount: Int
-        var sharedSampleCount: Int
     }
 
     private struct AccountLedger: Codable, Equatable {
@@ -99,7 +96,7 @@ actor TaskUsageTracker {
         }
         let home = codexHome ?? environmentHome
             ?? fileManager.homeDirectoryForCurrentUser.appending(path: ".codex", directoryHint: .isDirectory)
-        cacheURL = home.appending(path: ".cache/account-switcher-task-quota-v1.json")
+        cacheURL = home.appending(path: ".cache/account-switcher-task-quota-v2.json")
         self.fileManager = fileManager
         storage = (try? Data(contentsOf: cacheURL)).flatMap { try? JSONDecoder().decode(Storage.self, from: $0) }
             ?? Storage()
@@ -129,31 +126,19 @@ actor TaskUsageTracker {
             let quotaDelta = current.weeklyUsedPercent - previous.weeklyUsedPercent
             if quotaDelta > 0 {
                 let increments = Self.increments(from: previous.tasks, to: current.tasks)
-                let totalWeight = increments.reduce(0) { $0 + $1.weight }
-                if totalWeight > 0 {
-                    let shared = increments.count > 1
-                    for increment in increments {
-                        let key = "\(increment.taskID)|\(increment.profileKey)"
-                        var allocation = ledger.allocations[key] ?? Allocation(
-                            taskID: increment.taskID,
-                            profileKey: increment.profileKey,
-                            weeklyQuotaPoints: 0,
-                            solEquivalentTokens: 0,
-                            directWeeklyQuotaPoints: 0,
-                            directSolEquivalentTokens: 0,
-                            sampleCount: 0,
-                            sharedSampleCount: 0
-                        )
-                        allocation.weeklyQuotaPoints += quotaDelta * increment.weight / totalWeight
-                        allocation.solEquivalentTokens += increment.weight
-                        if !shared, increment.hasCompleteComponents {
-                            allocation.directWeeklyQuotaPoints += quotaDelta
-                            allocation.directSolEquivalentTokens += increment.weight
-                        }
-                        allocation.sampleCount += 1
-                        if shared { allocation.sharedSampleCount += 1 }
-                        ledger.allocations[key] = allocation
-                    }
+                if increments.count == 1, let increment = increments.first {
+                    let key = "\(increment.taskID)|\(increment.profileKey)"
+                    var allocation = ledger.allocations[key] ?? Allocation(
+                        taskID: increment.taskID,
+                        profileKey: increment.profileKey,
+                        weeklyQuotaPoints: 0,
+                        directActiveSeconds: 0,
+                        sampleCount: 0
+                    )
+                    allocation.weeklyQuotaPoints += quotaDelta
+                    allocation.directActiveSeconds += increment.activeSeconds
+                    allocation.sampleCount += 1
+                    ledger.allocations[key] = allocation
                 } else {
                     ledger.unallocatedWeeklyQuotaPoints += quotaDelta
                 }
@@ -171,10 +156,7 @@ actor TaskUsageTracker {
         let reports = tasks.map { task -> TaskUsageReport in
             let allocations = allocationByTask[task.id] ?? []
             let points = allocations.isEmpty ? nil : allocations.reduce(0) { $0 + $1.weeklyQuotaPoints }
-            let evidence: TaskQuotaEvidence
-            if allocations.isEmpty { evidence = .tokenOnly }
-            else if allocations.contains(where: { $0.sharedSampleCount > 0 }) { evidence = .allocatedSharedInterval }
-            else { evidence = .measuredSingleTask }
+            let evidence: TaskQuotaEvidence = allocations.isEmpty ? .tokenOnly : .measuredSingleTask
             let dominant = task.profiles.max { $0.usage.total < $1.usage.total }
             return TaskUsageReport(
                 id: task.id,
@@ -210,8 +192,7 @@ actor TaskUsageTracker {
     private struct Increment {
         let taskID: String
         let profileKey: String
-        let weight: Double
-        let hasCompleteComponents: Bool
+        let activeSeconds: TimeInterval
     }
 
     private static func counters(_ tasks: [LocalTaskTokenUsage]) -> [String: TaskCounter] {
@@ -219,6 +200,7 @@ actor TaskUsageTracker {
             (task.id, TaskCounter(
                 startedAt: task.startedAt,
                 latestEventAt: task.latestEventAt,
+                activeDuration: task.duration,
                 profiles: Dictionary(uniqueKeysWithValues: task.profiles.map { profile in
                     (profile.id, ProfileCounter(model: profile.model, effort: profile.effort, usage: profile.usage))
                 })
@@ -231,9 +213,13 @@ actor TaskUsageTracker {
             task.profiles.compactMap { profileKey, profile in
                 let previous = old[taskID]?.profiles[profileKey]?.usage
                 let delta = subtract(profile.usage, previous)
-                let weight = solEquivalentTokens(delta)
-                let complete = delta.uncachedInput != nil && delta.cachedInput != nil && delta.output != nil
-                return weight > 0 ? Increment(taskID: taskID, profileKey: profileKey, weight: weight, hasCompleteComponents: complete) : nil
+                guard delta.total > 0 else { return nil }
+                let oldDuration = old[taskID]?.activeDuration ?? 0
+                return Increment(
+                    taskID: taskID,
+                    profileKey: profileKey,
+                    activeSeconds: max(0, task.activeDuration - oldDuration)
+                )
             }
         }
     }
@@ -244,9 +230,7 @@ actor TaskUsageTracker {
             var taskIDs = Set<String>()
             var duration = 0.0
             var quota = 0.0
-            var attributedUnits = 0.0
-            var directQuota = 0.0
-            var directUnits = 0.0
+            var measuredSeconds = 0.0
             var hasQuota = false
         }
         var grouped: [String: (String?, String?, Aggregate)] = [:]
@@ -262,19 +246,17 @@ actor TaskUsageTracker {
         for allocation in allocations.values {
             guard var item = grouped[allocation.profileKey] else { continue }
             item.2.quota += allocation.weeklyQuotaPoints
-            item.2.attributedUnits += allocation.solEquivalentTokens
-            item.2.directQuota += allocation.directWeeklyQuotaPoints
-            item.2.directUnits += allocation.directSolEquivalentTokens
+            item.2.measuredSeconds += allocation.directActiveSeconds
             item.2.hasQuota = true
             grouped[allocation.profileKey] = item
         }
         let baselineKey = ModelEffortComparison.key(model: "gpt-5.6-sol", effort: "medium")
         let baselineRate = grouped[baselineKey].flatMap { item -> Double? in
-            return item.2.directUnits > 0 ? item.2.directQuota / item.2.directUnits : nil
+            item.2.measuredSeconds > 0 ? item.2.quota / item.2.measuredSeconds * 600 : nil
         }
         return grouped.map { key, item in
             let components = item.2.usage.components
-            let rate = item.2.directUnits > 0 ? item.2.directQuota / item.2.directUnits : nil
+            let rate = item.2.measuredSeconds > 0 ? item.2.quota / item.2.measuredSeconds * 600 : nil
             return ModelEffortComparison(
                 model: item.0,
                 effort: item.1,
@@ -283,7 +265,7 @@ actor TaskUsageTracker {
                 activeDuration: item.2.duration,
                 weeklyQuotaPoints: item.2.hasQuota ? item.2.quota : nil,
                 quotaMultiplier: rate.flatMap { value in baselineRate.map { value / $0 } },
-                quotaPointsPerMillionSolEquivalentTokens: rate.map { $0 * 1_000_000 }
+                quotaPointsPer10ActiveMinutes: rate
             )
         }.sorted { lhs, rhs in
             if lhs.usage.total != rhs.usage.total { return lhs.usage.total > rhs.usage.total }
@@ -319,16 +301,6 @@ actor TaskUsageTracker {
     private static func subtract(_ current: Int?, _ previous: Int?) -> Int? {
         guard let current else { return nil }
         return max(0, current - (previous ?? 0))
-    }
-
-    /// Sol Medium reference mix: cached input costs 0.1x fresh input and output
-    /// costs 5x fresh input at the bundled standard API rates. This is a stable
-    /// workload denominator, not a claim about OpenAI's subscription formula.
-    static func solEquivalentTokens(_ usage: LocalTokenComponents) -> Double {
-        guard let uncached = usage.uncachedInput, let cached = usage.cachedInput, let output = usage.output else {
-            return Double(usage.total)
-        }
-        return Double(uncached) + Double(cached) * 0.1 + Double(output) * 5
     }
 
     private static func sameWindow(_ lhs: Date?, _ rhs: Date?) -> Bool {

@@ -34,29 +34,21 @@ IDs and collapses copied/forked streams. The close total supports the aggregate
 baseline while the native event-level model/effort attribution remains the
 product's source of truth going forward.
 
-The “work-rate index” uses one stable denominator:
+| Model / effort | Sessions | Total tokens | Active hours | Tokens / 10 active min |
+| --- | ---: | ---: | ---: | ---: |
+| Luna high | 64 | 313.24M | 25.7 | 2.03M |
+| Luna xhigh | 186 | 1.392B | 54.1 | 4.29M |
+| Luna max | 210 | 2.539B | 102.4 | 4.13M |
+| Sol medium | 193 | 4.950B | 196.0 | 4.21M |
+| Sol high | 128 | 707.89M | 38.3 | 3.08M |
+| Sol xhigh | 91 | 1.882B | 82.0 | 3.82M |
+| Astra low | 13 | 96.90M | 4.05 | 3.99M |
+| Astra medium | 29 | 653.07M | 25.9 | 4.20M |
+| Astra high | 1 | 11.62M | unavailable | unavailable |
 
-`Sol-equivalent tokens = uncached input + 0.1 x cached input + 5 x output`
-
-The 0.1 and 5 weights are Sol Medium's relative standard API token weights. This
-normalizes cache-heavy histories; it is not OpenAI's unpublished quota formula.
-
-| Model / effort | Sessions | Total tokens | Active hours | Tokens / 10 active min | Work-rate index vs Sol Medium |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Luna high | 64 | 313.24M | 25.7 | 2.03M | 0.55x |
-| Luna xhigh | 186 | 1.392B | 54.1 | 4.29M | 1.14x |
-| Luna max | 210 | 2.539B | 102.4 | 4.13M | 1.05x |
-| Sol medium | 193 | 4.950B | 196.0 | 4.21M | 1.00x |
-| Sol high | 128 | 707.89M | 38.3 | 3.08M | 0.84x |
-| Sol xhigh | 91 | 1.882B | 82.0 | 3.82M | 0.95x |
-| Astra low | 13 | 96.90M | 4.05 | 3.99M | 1.00x |
-| Astra medium | 29 | 653.07M | 25.9 | 4.20M | 1.00x |
-| Astra high | 1 | 11.62M | unavailable | unavailable | unavailable |
-
-These ratios describe observed token-processing intensity, not durability. For
-example, Luna xhigh processed 1.14 times the normalized work per active minute of
-Sol Medium in this sample; that does not prove that it burns 1.14 times the weekly
-quota.
+This table is only a historical workload inventory. Token throughput is not a
+quota-consumption rate and is not used to calculate durability or model
+multipliers.
 
 ## Available subscription evidence
 
@@ -78,18 +70,22 @@ For adjacent samples `S0` and `S1` in one weekly reset window:
 
 1. `quota_drop = used_percent(S1) - used_percent(S0)`; reset transitions and
    negative changes are excluded.
-2. Compute each changed session/profile's incremental Sol-equivalent tokens.
-3. If exactly one session/model/effort profile changed, assign the measured drop
-   directly to it.
-4. If several sessions or model/effort profiles changed, allocate the drop by
-   incremental work share and mark each result with `~`; allocated intervals do
-   not train model multipliers.
-   Legacy increments without a complete input/cache/output split also do not
-   train multipliers.
-5. For direct single-task intervals, calculate
-   `quota points per million Sol-equivalent tokens`.
-6. Divide each model/effort rate by the Sol Medium direct-sample rate. Sol Medium
+2. Use positive token deltas only to identify which session/model/effort profile
+   was active. Token counts and API prices never enter the rate formula.
+3. If exactly one session/model/effort profile changed, assign the full measured
+   quota drop directly to it and measure the increase in that task's recorded
+   active duration.
+4. If several sessions or profiles changed, or none can be identified, leave the
+   full drop in an explicit unattributed bucket. Do not divide it by token share.
+5. For direct single-profile intervals, calculate
+   `quota burn per 10 active minutes = quota_drop / active_seconds_delta x 600`.
+   A quota drop without a positive measured duration remains a per-task drop but
+   does not train a time rate.
+6. Divide each model/effort's measured 10-minute burn rate by the Sol Medium
+   measured 10-minute burn rate. Sol Medium
    is exactly `1.00x`. Missing direct evidence remains `—`, never zero.
 
-This produces both the requested per-task measurement and a defensible durability
-multiplier while keeping measured, allocated and unavailable values distinct.
+This produces the requested per-task measurement and a durability multiplier
+based only on observed official quota loss per active time. Historical model
+multipliers remain unavailable until enough prospective direct intervals have
+been collected.
