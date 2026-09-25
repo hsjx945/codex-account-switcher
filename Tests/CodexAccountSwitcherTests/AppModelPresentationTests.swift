@@ -6,6 +6,46 @@ import Testing
 
 @MainActor
 struct AppModelPresentationTests {
+    @Test func proAccountSkipsScheduledWarmupWithoutFiveHourWindow() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "pro-warmup-check-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let executable = root.appending(path: "fixture.sh")
+        let script = """
+        #!/bin/sh
+        while IFS= read -r line; do
+          case "$line" in
+            *initialized*) ;;
+            *initialize*) printf '%s\\n' '{"id":0,"result":{}}' ;;
+            *rateLimits*) printf '%s\\n' '{"id":1,"result":{"rateLimits":{"primary":{"usedPercent":33,"windowDurationMins":10080}}}}' ;;
+            *usage*) printf '%s\\n' '{"id":1,"result":{"dailyUsageBuckets":[]}}' ;;
+            *account*) printf '%s\\n' '{"id":1,"result":{"account":{"accountId":"pro-fixture","email":"pro@example.com","planType":"prolite"}}}' ;;
+          esac
+        done
+        """
+        try Data(script.utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let store = AccountStore(baseURL: root.appending(path: "store"), activeHomeURL: root.appending(path: "active"))
+        let profile = AccountProfile(id: UUID(), displayName: "Pro", email: "pro@example.com", accountID: "pro-fixture", planType: "prolite", createdAt: Date())
+        let home = try await store.createProfileDirectory(id: profile.id)
+        try Data("synthetic".utf8).write(to: home.appending(path: "auth.json"))
+        try await store.addProfile(profile)
+        var settings = AppSettings.default
+        settings.automaticWarmupEnabled = true
+        settings.warmupHour = 0
+        settings.warmupMinute = 0
+        try await store.saveSettings(settings)
+
+        let model = AppModel(store: store, codex: CodexClient(locator: CodexExecutableLocator(explicitURL: executable), requestTimeout: .seconds(2)), switchService: PresentationNoopSwitch(), operationGate: AccountOperationGate())
+        await model.start()
+        model.refreshWeeklyUsage()
+        await model.waitForWeeklyUsageRefresh()
+
+        #expect(model.usageStates[profile.id]?.displayedUsage?.remainingPercent == 67)
+        #expect(try await store.loadWarmupHistory().lastAttemptDayByProfile[profile.id.uuidString] == nil)
+        #expect(model.warmupStatuses[profile.id] == nil)
+    }
+
     @Test func tokenQuerySurvivesMissingWeeklyQuota() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "independent-token-test-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

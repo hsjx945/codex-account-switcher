@@ -276,6 +276,8 @@ final class AppModel: ObservableObject {
                 let history = try await store.loadWarmupHistory()
                 warmupStatuses = history.lastRecordByProfile.reduce(into: [:]) { values, item in
                     guard let id = UUID(uuidString: item.key) else { return }
+                    // An interrupted request must not remain "in progress" after relaunch.
+                    guard item.value.outcome != .attempting else { return }
                     values[id] = item.value
                 }
             } catch {
@@ -492,6 +494,7 @@ final class AppModel: ObservableObject {
 
         for account in displayedAccounts {
             guard !Task.isCancelled else { return }
+            guard account.supportsFiveHourUsage else { continue }
             guard history.lastAttemptDayByProfile[account.id.uuidString] != day else { continue }
             guard case let .loaded(currentUsage) = usageStates[account.id] else { continue }
             guard currentUsage.allowsWarmup(at: now) else { continue }
@@ -768,6 +771,7 @@ final class AppModel: ObservableObject {
             }
             let now = Date()
             for (id, state) in usageStates {
+                guard accounts.first(where: { $0.id == id })?.supportsFiveHourUsage == true else { continue }
                 guard let resetAt = state.displayedUsage?.fiveHourResetsAt, resetAt <= now else { continue }
                 lastNotifiedFiveHourResetAt[id] = resetAt
                 try await store.markFiveHourResetNotified(profileID: id, resetAt: resetAt)
@@ -951,7 +955,8 @@ final class AppModel: ObservableObject {
                 lastNotifiedResetAt: lastNotifiedFiveHourResetAt[profileID],
                 now: Date()
               ),
-              let account = accounts.first(where: { $0.id == profileID })
+              let account = accounts.first(where: { $0.id == profileID }),
+              account.supportsFiveHourUsage
         else { return }
 
         let label = account.primaryLabel(style: settings.accountNameStyle)

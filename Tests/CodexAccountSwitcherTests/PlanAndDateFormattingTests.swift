@@ -61,6 +61,21 @@ struct PlanAndDateFormattingTests {
         #expect(displayName.preferredLabel == "Display")
     }
 
+    @Test func warmupStatusOnlyAppearsForEligibleAccountOnAttemptDay() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let plus = AccountProfile(id: UUID(), displayName: "Plus", email: nil, accountID: nil, planType: "plus", createdAt: now)
+        let pro = AccountProfile(id: UUID(), displayName: "Pro", email: nil, accountID: nil, planType: "prolite", createdAt: now)
+        let today = WarmupRecord(attemptedAt: now.addingTimeInterval(-60), outcome: .unconfirmed, model: "small")
+        let yesterday = WarmupRecord(attemptedAt: now.addingTimeInterval(-86_400), outcome: .confirmed, model: "small")
+
+        #expect(today.isRelevant(for: plus, enabled: true, now: now, calendar: calendar))
+        #expect(!today.isRelevant(for: pro, enabled: true, now: now, calendar: calendar))
+        #expect(!today.isRelevant(for: plus, enabled: false, now: now, calendar: calendar))
+        #expect(!yesterday.isRelevant(for: plus, enabled: true, now: now, calendar: calendar))
+    }
+
     @Test func distinguishesMissingTodayBucketFromZeroUsage() throws {
         let activity = TokenActivity(
             dailyBuckets: [DailyTokenUsage(startDate: "2026-09-03", tokens: 100)],

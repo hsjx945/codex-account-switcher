@@ -208,7 +208,10 @@ struct MenuBarPopover: View {
                         tokenReportingDate: model.tokenReportingDate,
                         tokenActivityRefreshFinished: model.tokenActivityRefreshFinished,
                         showsTokenActivity: model.settings.showsTokenActivity,
-                        warmupStatus: model.warmupStatuses[account.id],
+                        warmupStatus: model.warmupStatuses[account.id].flatMap { record in
+                            record.isRelevant(for: account, enabled: model.settings.automaticWarmupEnabled)
+                                ? record : nil
+                        },
                         tokenRefreshError: model.tokenRefreshErrors[account.id],
                         tokenFetchedAt: model.tokenFetchedAt[account.id],
                         tokenRefreshPending: model.tokenRefreshPending.contains(account.id)

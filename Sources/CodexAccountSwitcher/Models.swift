@@ -417,6 +417,17 @@ struct WarmupRecord: Codable, Equatable, Sendable {
     let attemptedAt: Date
     let outcome: WarmupOutcome
     let model: String?
+
+    func isRelevant(
+        for account: AccountProfile,
+        enabled: Bool,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Bool {
+        enabled && account.supportsFiveHourUsage
+            && attemptedAt <= now
+            && calendar.isDate(attemptedAt, inSameDayAs: now)
+    }
 }
 
 struct WarmupHistory: Codable, Equatable, Sendable {
