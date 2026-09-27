@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="AccountStore.cs" />
+    <Compile Include="CodexClient.cs" />
+    <Compile Include="AccountSwitcher.cs" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+</Project>
