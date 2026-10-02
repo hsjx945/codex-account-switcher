@@ -102,9 +102,9 @@ public sealed class CodexClient : ICodexIdentityReader
             if (executable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
             {
                 info = new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe");
-                info.ArgumentList.Add("/d");
-                info.ArgumentList.Add("/c");
-                info.ArgumentList.Add($"\"{executable}\" app-server --stdio");
+                // cmd.exe needs the outer pair of quotes as well as the quoted shim path.
+                // ArgumentList would escape those quotes before cmd.exe parses them.
+                info.Arguments = $"/d /s /c \"\"{executable}\" app-server --stdio\"";
             }
             else
             {
