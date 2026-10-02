@@ -2,6 +2,26 @@ using System.Text;
 using System.Text.Json;
 using CodexAccountSwitcher.Windows;
 
+if (args.SequenceEqual(["app-server", "--stdio"]))
+{
+    if (Environment.GetEnvironmentVariable("CODEX_SWITCHER_TEST_EXIT") == "1") return;
+    while (await Console.In.ReadLineAsync() is { } line)
+    {
+        using var request = JsonDocument.Parse(line);
+        if (!request.RootElement.TryGetProperty("id", out var id)) continue;
+        var method = request.RootElement.GetProperty("method").GetString();
+        object result = method switch
+        {
+            "initialize" => new { protocolVersion = "2025-01-01" },
+            "account/read" => new { account = new { accountId = "fixture-account", email = "fixture@example.test", planType = "plus" } },
+            _ => throw new Exception("Unexpected fixture request: " + method)
+        };
+        await Console.Out.WriteLineAsync(JsonSerializer.Serialize(new { id = id.GetInt32(), result }));
+        await Console.Out.FlushAsync();
+    }
+    return;
+}
+
 var root = Path.Combine(Path.GetTempPath(), "switcher-tests-" + Guid.NewGuid().ToString("N"));
 try
 {
@@ -30,6 +50,46 @@ try
         throw new Exception("Codex account/read parsing failed.");
     if (OperatingSystem.IsWindows())
     {
+        var original = Environment.GetEnvironmentVariable("CODEX_SWITCHER_CODEX_PATH");
+        var originalPath = Environment.GetEnvironmentVariable("Path");
+        var originalLocal = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        var fixture = Environment.ProcessPath ?? throw new Exception("Test executable path unavailable.");
+        try
+        {
+            Environment.SetEnvironmentVariable("CODEX_SWITCHER_CODEX_PATH", fixture);
+            if (CodexExecutableLocator.Locate() != fixture) throw new Exception("Explicit CLI was not located.");
+            var actual = await new CodexClient().ReadIdentityAsync(store.CodexHome);
+            if (actual.AccountID != "fixture-account" || actual.Email != "fixture@example.test")
+                throw new Exception("Codex app-server process exchange failed.");
+            Environment.SetEnvironmentVariable("CODEX_SWITCHER_TEST_EXIT", "1");
+            try { await new CodexClient().ReadIdentityAsync(store.CodexHome); throw new Exception("Closed app-server was accepted."); }
+            catch (IOException error) when (error.Message.Contains("exit code 0")) { }
+            finally { Environment.SetEnvironmentVariable("CODEX_SWITCHER_TEST_EXIT", null); }
+
+            Environment.SetEnvironmentVariable("CODEX_SWITCHER_CODEX_PATH", null);
+            var localBin = Path.Combine(root, "local", "OpenAI", "Codex", "bin", "fixture-version");
+            Directory.CreateDirectory(localBin);
+            var bundled = Path.Combine(localBin, "codex.exe");
+            File.Copy(fixture, bundled);
+            Environment.SetEnvironmentVariable("LOCALAPPDATA", Path.Combine(root, "local"));
+            Environment.SetEnvironmentVariable("Path", Path.Combine(root, "empty"));
+            if (CodexExecutableLocator.Locate() != bundled) throw new Exception("Codex Desktop bundled CLI was not located.");
+
+            File.Delete(bundled);
+            var shimDir = Path.Combine(root, "cli with spaces");
+            Directory.CreateDirectory(shimDir);
+            File.WriteAllText(Path.Combine(shimDir, "codex.cmd"), "@echo off\r\n\"" + fixture + "\" %*\r\n");
+            Environment.SetEnvironmentVariable("Path", shimDir);
+            if ((await new CodexClient().ReadIdentityAsync(store.CodexHome)).AccountID != "fixture-account")
+                throw new Exception("Codex command shim process exchange failed.");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CODEX_SWITCHER_CODEX_PATH", original);
+            Environment.SetEnvironmentVariable("Path", originalPath);
+            Environment.SetEnvironmentVariable("LOCALAPPDATA", originalLocal);
+        }
+
         var switcher = new AccountSwitcher(store, new SyntheticIdentityReader());
         await switcher.SwitchAsync(second.Id);
         if (store.Load().ActiveAccountID != second.Id ||

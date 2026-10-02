@@ -4,12 +4,14 @@ This directory contains the Windows tray version of Codex Account Switcher. It t
 
 ## Install and use
 
-1. Install and sign in to the official [ChatGPT desktop app](https://help.openai.com/en/articles/20001276-moving-to-the-new-chatgpt-desktop-app) or Codex app, and install the official Codex CLI so `codex` works in a new Command Prompt window. The CLI supplies the app-server used for browser login and identity checks.
+1. Install and sign in to the official Codex desktop app. The switcher looks for `codex.exe` on Windows `PATH` and under `%LOCALAPPDATA%\OpenAI\Codex\bin\<version>\`. It also accepts the `codex.cmd` command shim on `PATH`. If none is found, install the Windows Codex CLI so `codex --version` works in a new Command Prompt window, or set `CODEX_SWITCHER_CODEX_PATH` to the full path of `codex.exe`. A WSL-only CLI cannot be launched by this Windows application. The CLI supplies the app-server used for browser login and identity checks.
 2. Download `Codex-Account-Switcher-Setup-win-x64.exe` and its SHA-256 file from the [Windows preview GitHub Release](https://github.com/hsjx945/codex-account-switcher/releases). Verify the checksum, then run the installer. The preview is unsigned, so Windows SmartScreen may show a warning.
 3. If Codex is already signed in, click **Import current**. Otherwise click **Add** and finish sign-in in your browser. Each added account is authorized through Codex's own login flow.
 4. Close the Codex / ChatGPT desktop application before switching. Select a saved account and click **Switch**. Reopen the desktop app after the success message. The app never terminates CLI sessions or desktop tasks itself.
 
 The app stays in the system tray when its window is closed. Use **Exit** in the tray menu to quit. Browser login can be cancelled in the window.
+
+This Windows preview has a separate, simpler interface from the macOS menu bar app. The macOS token charts, reminders, automatic warmup, and start-at-login setting are not yet present on Windows.
 
 ## Local build
 

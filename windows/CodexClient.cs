@@ -97,21 +97,20 @@ public sealed class CodexClient : ICodexIdentityReader
 
         public Session(string codexHome)
         {
-            var explicitPath = Environment.GetEnvironmentVariable("CODEX_SWITCHER_CODEX_PATH");
+            var executable = CodexExecutableLocator.Locate();
             ProcessStartInfo info;
-            if (!string.IsNullOrWhiteSpace(explicitPath))
+            if (executable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
             {
-                if (!Path.IsPathFullyQualified(explicitPath) || !File.Exists(explicitPath) ||
-                    !explicitPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("CODEX_SWITCHER_CODEX_PATH must point to an existing codex.exe.");
-                info = new ProcessStartInfo(explicitPath);
-                info.ArgumentList.Add("app-server"); info.ArgumentList.Add("--stdio");
+                info = new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe");
+                info.ArgumentList.Add("/d");
+                info.ArgumentList.Add("/c");
+                info.ArgumentList.Add($"\"{executable}\" app-server --stdio");
             }
             else
             {
-                info = new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe");
-                info.ArgumentList.Add("/d"); info.ArgumentList.Add("/s"); info.ArgumentList.Add("/c");
-                info.ArgumentList.Add("codex app-server --stdio");
+                info = new ProcessStartInfo(executable);
+                info.ArgumentList.Add("app-server");
+                info.ArgumentList.Add("--stdio");
             }
             info.UseShellExecute = false;
             info.CreateNoWindow = true;
@@ -119,7 +118,11 @@ public sealed class CodexClient : ICodexIdentityReader
             info.RedirectStandardOutput = true;
             info.RedirectStandardError = true;
             info.Environment["CODEX_HOME"] = codexHome;
-            process = Process.Start(info) ?? throw new InvalidOperationException("Codex CLI could not start.");
+            try { process = Process.Start(info) ?? throw new InvalidOperationException("Codex CLI could not start."); }
+            catch (System.ComponentModel.Win32Exception error)
+            {
+                throw new InvalidOperationException("无法启动 Codex CLI。请确认 Codex 桌面应用或 CLI 已正确安装。", error);
+            }
             stderrDrain = Task.Run(async () => { try { await process.StandardError.ReadToEndAsync(lifetime.Token); } catch (OperationCanceledException) { } });
         }
 
@@ -166,7 +169,13 @@ public sealed class CodexClient : ICodexIdentityReader
         private async Task<JsonElement> ReadAsync(CancellationToken cancellation)
         {
             var line = await process.StandardOutput.ReadLineAsync(cancellation);
-            if (line is null) throw new IOException("Codex app-server closed its connection.");
+            if (line is null)
+            {
+                try { await process.WaitForExitAsync(cancellation).WaitAsync(TimeSpan.FromSeconds(2), cancellation); }
+                catch (TimeoutException) { }
+                var code = process.HasExited ? $" (exit code {process.ExitCode})" : "";
+                throw new IOException("Codex app-server 已退出" + code + "。请在命令提示符运行 codex app-server，检查 Codex 安装；若使用 WSL，请安装 Windows 版 Codex CLI。错误输出不会写入账号切换器。 / Codex app-server exited" + code + ". Check the Windows Codex CLI installation.");
+            }
             using var document = JsonDocument.Parse(line);
             return document.RootElement.Clone();
         }
@@ -180,4 +189,52 @@ public sealed class CodexClient : ICodexIdentityReader
             _ = stderrDrain;
         }
     }
+}
+
+public static class CodexExecutableLocator
+{
+    public static string Locate()
+    {
+        var explicitPath = Environment.GetEnvironmentVariable("CODEX_SWITCHER_CODEX_PATH");
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            if (IsExe(explicitPath)) return explicitPath;
+            throw new InvalidOperationException("CODEX_SWITCHER_CODEX_PATH 必须指向现有的 Windows codex.exe。 / It must point to an existing Windows codex.exe.");
+        }
+
+        foreach (var directory in (Environment.GetEnvironmentVariable("Path") ?? Environment.GetEnvironmentVariable("PATH") ?? "")
+                     .Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var path = directory.Trim().Trim('"');
+            if (!Path.IsPathFullyQualified(path)) continue;
+            var exe = Path.Combine(path, "codex.exe");
+            if (IsExe(exe)) return exe;
+        }
+
+        var local = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        if (!string.IsNullOrWhiteSpace(local))
+        {
+            var bin = Path.Combine(local, "OpenAI", "Codex", "bin");
+            if (Directory.Exists(bin))
+                foreach (var version in Directory.EnumerateDirectories(bin)
+                             .OrderByDescending(Directory.GetLastWriteTimeUtc))
+                {
+                    var exe = Path.Combine(version, "codex.exe");
+                    if (IsExe(exe)) return exe;
+                }
+        }
+
+        foreach (var directory in (Environment.GetEnvironmentVariable("Path") ?? Environment.GetEnvironmentVariable("PATH") ?? "")
+                     .Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var path = directory.Trim().Trim('"');
+            if (!Path.IsPathFullyQualified(path)) continue;
+            var shim = Path.Combine(path, "codex.cmd");
+            if (File.Exists(shim)) return shim;
+        }
+        throw new FileNotFoundException("找不到 Windows Codex CLI。请安装 Codex CLI，或设置 CODEX_SWITCHER_CODEX_PATH 指向 codex.exe；仅打开 Codex 桌面应用不会提供命令行连接。 / Windows Codex CLI was not found.");
+    }
+
+    private static bool IsExe(string path) => Path.IsPathFullyQualified(path) &&
+        path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(path);
 }
