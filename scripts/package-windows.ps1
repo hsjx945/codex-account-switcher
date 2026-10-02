@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$versionMatch = Select-String -Path (Join-Path $repo 'CITATION.cff') -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$'
+$versionMatch = @(Select-String -Path (Join-Path $repo 'CITATION.cff') -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$')
 if ($versionMatch.Count -ne 1) { throw 'CITATION.cff must contain exactly one semantic version.' }
 $version = $versionMatch.Matches[0].Groups[1].Value
 $project = Join-Path $repo 'windows/CodexAccountSwitcher.Windows.csproj'

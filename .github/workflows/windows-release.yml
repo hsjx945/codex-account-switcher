@@ -27,7 +27,7 @@ jobs:
             throw 'Unexpected Windows preview tag.'
           }
           $tagVersion = $Matches[1]
-          $source = Select-String -Path CITATION.cff -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$'
+          $source = @(Select-String -Path CITATION.cff -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$')
           if ($source.Count -ne 1 -or $source.Matches[0].Groups[1].Value -ne $tagVersion) {
             throw 'Release tag does not match CITATION.cff.'
           }
