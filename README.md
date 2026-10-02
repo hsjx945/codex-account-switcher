@@ -12,7 +12,7 @@ English · [简体中文](README.zh-CN.md)
 
 This source version is **0.2.2**. It targets **Apple Silicon Macs with macOS 14 or later** and requires an installed Codex Desktop / Codex executable.
 
-A separate **Windows 10/11 x64 test build** is now available from successful CI runs. See the [Windows setup and limitations](windows/README.md). The Windows build requires an installed Codex CLI and has not yet been validated with two real accounts on a Windows machine.
+A separate **Windows 10/11 x64 preview installer** is available from the [Windows preview releases](https://github.com/hsjx945/codex-account-switcher/releases). See the [Windows setup and limitations](windows/README.md). The Windows build requires an installed Codex CLI and has not yet been validated with two real accounts on a Windows machine.
 
 1. Open the [Release page](https://github.com/hsjx945/codex-account-switcher/releases/latest) and read its signing status.
 2. Download `Codex-Account-Switcher-macos-arm64.dmg` and its SHA-256 checksum.

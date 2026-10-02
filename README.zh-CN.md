@@ -12,7 +12,7 @@
 
 当前源码版本为 **0.2.2**，支持 **macOS 14 或更高版本的 Apple Silicon Mac**，需要已安装 Codex Desktop / Codex 可执行程序。
 
-另有 **Windows 10/11 x64 测试版**，可从成功的 CI 运行下载。安装步骤和当前功能范围见 [Windows 说明](windows/README.md)。Windows 版需要本机已安装 Codex CLI；目前尚未在 Windows 真机上完成两个真实账号的切换验收。
+另有 **Windows 10/11 x64 预览安装包**，可从 [Windows 预览版 Release](https://github.com/hsjx945/codex-account-switcher/releases) 下载。安装步骤和当前功能范围见 [Windows 说明](windows/README.md)。Windows 版需要本机已安装 Codex CLI；目前尚未在 Windows 真机上完成两个真实账号的切换验收。
 
 1. 打开 [Release 页面](https://github.com/hsjx945/codex-account-switcher/releases/latest)，查看该安装包的签名状态。
 2. 下载 `Codex-Account-Switcher-macos-arm64.dmg` 和 SHA-256 校验文件。

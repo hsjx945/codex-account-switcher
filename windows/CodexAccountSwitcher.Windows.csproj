@@ -7,10 +7,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Content Include="app.ico" CopyToOutputDirectory="Never" />
     <ProjectReference Include="CodexAccountSwitcher.Core.csproj" />
   </ItemGroup>
 </Project>

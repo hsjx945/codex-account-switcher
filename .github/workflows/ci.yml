@@ -22,22 +22,19 @@ jobs:
           dotnet-version: 8.0.x
       - name: Run Windows core tests
         run: dotnet run --project windows/tests/CodexAccountSwitcher.Tests.csproj --configuration Release
-      - name: Build Windows tray application
-        run: dotnet publish windows/CodexAccountSwitcher.Windows.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true --output windows/artifacts/app
-      - name: Package Windows build
+      - name: Build Windows installer
         shell: pwsh
-        run: |
-          Compress-Archive -Path windows/artifacts/app/* -DestinationPath windows/artifacts/Codex-Account-Switcher-win-x64.zip
-          Get-FileHash windows/artifacts/Codex-Account-Switcher-win-x64.zip -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLowerInvariant())  Codex-Account-Switcher-win-x64.zip" } |
-            Set-Content windows/artifacts/Codex-Account-Switcher-win-x64.zip.sha256
+        run: ./scripts/package-windows.ps1 -SkipTests
+      - name: Install and uninstall test build
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1
       - name: Upload Windows test build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: codex-account-switcher-windows-test
           path: |
-            windows/artifacts/Codex-Account-Switcher-win-x64.zip
-            windows/artifacts/Codex-Account-Switcher-win-x64.zip.sha256
+            windows/artifacts/Codex-Account-Switcher-Setup-win-x64.exe
+            windows/artifacts/Codex-Account-Switcher-Setup-win-x64.exe.sha256
           if-no-files-found: error
 
   test:

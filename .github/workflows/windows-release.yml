@@ -1,0 +1,60 @@
+name: Windows preview release
+
+on:
+  push:
+    tags:
+      - 'windows-v*-preview.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-preview-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Validate tag, version and branch head
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^windows-v(\d+\.\d+\.\d+)-preview\.\d+$') {
+            throw 'Unexpected Windows preview tag.'
+          }
+          $tagVersion = $Matches[1]
+          $source = Select-String -Path CITATION.cff -Pattern '^version:\s*(\d+\.\d+\.\d+)\s*$'
+          if ($source.Count -ne 1 -or $source.Matches[0].Groups[1].Value -ne $tagVersion) {
+            throw 'Release tag does not match CITATION.cff.'
+          }
+          git fetch origin codex/windows-support
+          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch Windows branch.' }
+          $branchHead = git rev-parse FETCH_HEAD
+          $tagHead = git rev-parse HEAD
+          if ($branchHead -ne $tagHead) { throw 'Release tag must be the Windows branch head.' }
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build and test Windows installer
+        shell: pwsh
+        run: |
+          ./scripts/package-windows.ps1
+          ./scripts/test-windows-installer.ps1
+      - name: Publish GitHub prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            windows/artifacts/Codex-Account-Switcher-Setup-win-x64.exe `
+            windows/artifacts/Codex-Account-Switcher-Setup-win-x64.exe.sha256 `
+            --title "Codex Account Switcher $env:GITHUB_REF_NAME" `
+            --notes-file windows/release-notes.md `
+            --prerelease `
+            --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub prerelease creation failed.' }

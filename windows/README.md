@@ -5,7 +5,7 @@ This directory contains the Windows tray version of Codex Account Switcher. It t
 ## Install and use
 
 1. Install and sign in to the official [ChatGPT desktop app](https://help.openai.com/en/articles/20001276-moving-to-the-new-chatgpt-desktop-app) or Codex app, and install the official Codex CLI so `codex` works in a new Command Prompt window. The CLI supplies the app-server used for browser login and identity checks.
-2. Download the `codex-account-switcher-windows-test` artifact from a successful CI run, verify the SHA-256 file, unzip it, and start `CodexAccountSwitcher.Windows.exe`. This CI artifact is an unsigned test build. Windows SmartScreen may show a warning.
+2. Download `Codex-Account-Switcher-Setup-win-x64.exe` and its SHA-256 file from the [Windows preview GitHub Release](https://github.com/hsjx945/codex-account-switcher/releases). Verify the checksum, then run the installer. The preview is unsigned, so Windows SmartScreen may show a warning.
 3. If Codex is already signed in, click **Import current**. Otherwise click **Add** and finish sign-in in your browser. Each added account is authorized through Codex's own login flow.
 4. Close the Codex / ChatGPT desktop application before switching. Select a saved account and click **Switch**. Reopen the desktop app after the success message. The app never terminates CLI sessions or desktop tasks itself.
 
@@ -13,14 +13,14 @@ The app stays in the system tray when its window is closed. Use **Exit** in the 
 
 ## Local build
 
-On Windows with the .NET 8 SDK:
+On Windows with the .NET 8 SDK and Inno Setup 6:
 
 ```powershell
-dotnet run --project windows/tests/CodexAccountSwitcher.Tests.csproj --configuration Release
-dotnet publish windows/CodexAccountSwitcher.Windows.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true --output windows/artifacts/app
+./scripts/package-windows.ps1
+./scripts/test-windows-installer.ps1
 ```
 
-Run `windows/artifacts/app/CodexAccountSwitcher.Windows.exe`. The app does not require a separately installed .NET runtime when built this way.
+Run `windows/artifacts/Codex-Account-Switcher-Setup-win-x64.exe`. The installed app does not require a separately installed .NET runtime. Uninstalling removes the application but preserves saved profiles under `%LOCALAPPDATA%\Codex Account Switcher`.
 
 ## Storage and recovery
 
@@ -28,4 +28,4 @@ Profiles and the registry are stored under `%LOCALAPPDATA%\Codex Account Switche
 
 The Windows and macOS apps use the same registry field names but have separate local profile directories. Copying raw profile files between computers is not an installation or migration flow.
 
-The CI build and synthetic tests do not prove a real Windows login, two-account switch, or desktop relaunch. Those require acceptance on a Windows machine with authorized accounts.
+The CI installer build, synthetic tests, and silent install/uninstall check do not prove a real Windows login, two-account switch, or desktop relaunch. Those require acceptance on a Windows machine with authorized accounts.
